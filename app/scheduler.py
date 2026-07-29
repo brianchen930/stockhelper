@@ -12,26 +12,11 @@ from app.analysis_engine import generate_analysis
 
 scheduler = AsyncIOScheduler()
 
-TRADING_START_HOUR = 9
-TRADING_START_MINUTE = 0
-TRADING_END_HOUR = 13
-TRADING_END_MINUTE = 30
 TAIPEI_TZ = ZoneInfo("Asia/Taipei")
 
 
 def should_run_monitoring(now: datetime | None = None, force: bool = False) -> bool:
-    if force:
-        return True
-
-    current_time = now or datetime.now(TAIPEI_TZ)
-
-    if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=TAIPEI_TZ)
-
-    start_time = current_time.replace(hour=TRADING_START_HOUR, minute=TRADING_START_MINUTE, second=0, microsecond=0)
-    end_time = current_time.replace(hour=TRADING_END_HOUR, minute=TRADING_END_MINUTE, second=0, microsecond=0)
-
-    return start_time <= current_time <= end_time
+    return True
 
 
 def build_notification_signature(
@@ -53,10 +38,6 @@ def build_notification_signature(
 
 def run_monitor_job():
     now = datetime.now(TAIPEI_TZ)
-
-    if not should_run_monitoring(now=now):
-        print(f"非交易時間，暫停監控：{now.strftime('%Y-%m-%d %H:%M:%S')}")
-        return
 
     print("=" * 50)
     print(f"開始執行自選股監控：{now}")
@@ -159,6 +140,14 @@ def run_monitor_job():
         realtime_price = data.get("realtime_price")
         realtime_change_percent = data.get("price_change_percent")
         technical_summary = data.get("technical_summary", "資料不足")
+        market_relative_performance = data.get("market_relative_performance") or {}
+        relative_label = market_relative_performance.get("label", "資料不足")
+        relative_difference = market_relative_performance.get("difference")
+        relative_text = (
+            f"{relative_label}（差距 {relative_difference:+.2f}%）"
+            if relative_difference is not None
+            else relative_label
+        )
         change_percent_text = (
             f"{realtime_change_percent:+.2f}%"
             if realtime_change_percent is not None
@@ -172,6 +161,7 @@ def run_monitor_job():
             f"{price_label}：{display_price}｜"
             f"漲跌幅：{change_percent_text}｜"
             f"技術摘要：{technical_summary}｜"
+            f"相對大盤：{relative_text}｜"
             f"趨勢：{current_trend}｜"
             f"訊號：{current_signal}｜"
             f"RSI：{current_rsi if current_rsi is not None else '資料不足'}｜"
@@ -232,6 +222,7 @@ def run_monitor_job():
                 f"{price_label}：{display_price}",
                 f"漲跌幅：{change_text}",
                 f"技術摘要：{technical_summary}",
+                f"相對大盤：{relative_text}",
                 f"RSI（14）：{current_rsi if current_rsi is not None else '資料不足'}",
                 (
                     f"訊號："

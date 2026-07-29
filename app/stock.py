@@ -18,6 +18,68 @@ def _valid_number(value) -> bool:
         return False
 
 
+def classify_market_relative_performance(
+    stock_change_percent: float | None,
+    benchmark_change_percent: float | None,
+) -> dict[str, float | str | None]:
+    """將個股相對大盤的表現分類為優於、略優於、持平、略弱於或弱於大盤。"""
+
+    if stock_change_percent is None or benchmark_change_percent is None:
+        return {
+            "difference": None,
+            "label": "資料不足",
+            "stock_change_percent": stock_change_percent,
+            "benchmark_change_percent": benchmark_change_percent,
+        }
+
+    difference = round(stock_change_percent - benchmark_change_percent, 2)
+
+    if difference >= 2:
+        label = "優於大盤"
+    elif difference >= 0.5:
+        label = "略優於大盤"
+    elif difference <= -2:
+        label = "弱於大盤"
+    elif difference <= -0.5:
+        label = "略弱於大盤"
+    else:
+        label = "持平大盤"
+
+    return {
+        "difference": difference,
+        "label": label,
+        "stock_change_percent": stock_change_percent,
+        "benchmark_change_percent": benchmark_change_percent,
+    }
+
+
+def get_market_change_percent(index_symbol: str = "^TWII") -> float | None:
+    """取得大盤指數最近一個交易日的漲跌幅。"""
+
+    try:
+        ticker = yf.Ticker(index_symbol)
+        data = ticker.history(
+            period="5d",
+            interval="1d",
+            auto_adjust=False,
+        )
+    except Exception:
+        return None
+
+    if data.empty or len(data) < 2:
+        return None
+
+    latest = data.iloc[-1]
+    previous = data.iloc[-2]
+    previous_close = float(previous["Close"])
+
+    if previous_close == 0:
+        return None
+
+    change = float(latest["Close"]) - previous_close
+    return round((change / previous_close) * 100, 2)
+
+
 def get_realtime_price(stock_code: str) -> dict | None:
     """取得盤中價格；fast_info 不可用時改用最近交易日收盤資料。"""
 
@@ -293,6 +355,11 @@ def get_stock_analysis(
     previous_close_price = round(float(previous["Close"]), 2)
     change = close_price - previous_close_price
     change_percent = round((change / previous_close_price) * 100, 2) if previous_close_price != 0 else None
+    benchmark_change_percent = get_market_change_percent()
+    market_relative_performance = classify_market_relative_performance(
+        stock_change_percent=change_percent,
+        benchmark_change_percent=benchmark_change_percent,
+    )
 
     analysis_result = {
         "stock_code": stock_code,
@@ -389,6 +456,8 @@ def get_stock_analysis(
         ),
         "volume": realtime_data.get("volume", int(latest["Volume"])),
         "price_source": realtime_data.get("price_source", "close"),
+        "benchmark_change_percent": benchmark_change_percent,
+        "market_relative_performance": market_relative_performance,
     })
     analysis_result["technical_summary"] = build_technical_summary(analysis_result)
 
