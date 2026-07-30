@@ -20,13 +20,47 @@ class RuleEngine:
         ]
 
     def evaluate(
-    self,
+        self,
         context: dict[str, Any]
     ) -> dict[str, Any]:
+        if not context.get("analysis_is_valid", True):
+            issues = context.get("data_quality_issues") or ["insufficient_data"]
+            events = [
+                {
+                    "event_type": "data_quality",
+                    "category": issue,
+                    "from": "valid",
+                    "to": "invalid",
+                    "score": 0,
+                    "notify": False,
+                    "message": "最新行情資料不完整",
+                }
+                for issue in issues
+            ]
+            return {
+                "should_notify": False,
+                "market_signal_notify": False,
+                "data_alert_notify": False,
+                "event_type": "data_quality",
+                "score": 0,
+                "technical_score": 0,
+                "level": "不通知",
+                "matched_rules": [],
+                "technical_matched_rules": [],
+                "triggered_rules": [],
+                "market_events": [],
+                "data_quality_events": events,
+                "system_events": [],
+                "has_data_quality_issue": True,
+            }
+
         total_score = 0
+        technical_score = 0
         matched_rules = []
+        technical_matched_rules = []
         triggered_rules = []
         event_types = []
+        market_events = []
 
         should_notify = False
 
@@ -41,6 +75,19 @@ class RuleEngine:
             matched_rules.extend(
                 result["messages"]
             )
+            if not isinstance(rule, SignalChangeRule):
+                technical_score += result["score"]
+                technical_matched_rules.extend(result["messages"])
+
+            market_events.extend(result.get("events") or [{
+                "event_type": "market_signal",
+                "category": result.get("category", result["event_type"]),
+                "from": None,
+                "to": "matched",
+                "score": result["score"],
+                "notify": result["notify_trigger"],
+                "message": " ".join(result["messages"]),
+            }])
 
             if result["notify_trigger"]:
                 should_notify = True
@@ -71,13 +118,21 @@ class RuleEngine:
 
         return {
             "should_notify": should_notify,
+            "market_signal_notify": should_notify,
+            "data_alert_notify": False,
             "event_type": self._build_event_type(
                 event_types
             ),
             "score": total_score,
+            "technical_score": technical_score,
             "level": level,
             "matched_rules": matched_rules,
-            "triggered_rules": triggered_rules
+            "technical_matched_rules": technical_matched_rules,
+            "triggered_rules": triggered_rules,
+            "market_events": market_events,
+            "data_quality_events": [],
+            "system_events": [],
+            "has_data_quality_issue": False,
         }
 
     def _build_event_type(self, event_types: list[str]) -> str:

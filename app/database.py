@@ -56,6 +56,16 @@ def create_tables():
             "ALTER TABLE watchlist ADD COLUMN last_notification_signature TEXT"
         )
 
+    if "last_data_error_at" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE watchlist ADD COLUMN last_data_error_at TIMESTAMP"
+        )
+
+    if "last_data_issue_key" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE watchlist ADD COLUMN last_data_issue_key TEXT"
+        )
+
     connection.commit()
     connection.close()
 
@@ -99,6 +109,8 @@ def get_all_stocks():
             last_trend,
             last_notify_at,
             last_notification_signature,
+            last_data_error_at,
+            last_data_issue_key,
             created_at
         FROM watchlist
         ORDER BY id ASC
@@ -171,6 +183,22 @@ def update_stock_state(
                 (signal, trend, stock_code)
             )
 
+    connection.commit()
+    connection.close()
+
+
+def save_data_quality_issue(stock_code: str, issue_key: str) -> None:
+    """只記錄資料問題，不覆蓋上一筆有效市場訊號與趨勢。"""
+    connection = get_connection()
+    connection.execute(
+        """
+        UPDATE watchlist
+        SET last_data_error_at = CURRENT_TIMESTAMP,
+            last_data_issue_key = ?
+        WHERE stock_code = ?
+        """,
+        (issue_key, stock_code),
+    )
     connection.commit()
     connection.close()
 

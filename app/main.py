@@ -32,14 +32,16 @@ app = FastAPI(lifespan=lifespan)
 
 @app.post("/notification/test")
 def test_notification():
-    success = send_discord_message(
+    result = send_discord_message(
         "台股監測助手 Discord 通知測試成功 ✅"
     )
 
-    if not success:
+    if not result["success"]:
         return {
             "success": False,
-            "message": "Discord 通知發送失敗"
+            "message": "Discord 通知發送失敗",
+            "status_code": result["status_code"],
+            "error": result["error"],
         }
 
     return {

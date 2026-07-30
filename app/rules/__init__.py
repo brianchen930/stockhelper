@@ -23,6 +23,9 @@ def evaluate_notification(
     previous_kd_k=None,
     previous_kd_d=None,
     previous_kd_j=None,
+    analysis_is_valid=True,
+    data_quality_issues=None,
+    macd_analysis=None,
 ):
     context = {
         "current_signal": current_signal,
@@ -43,6 +46,9 @@ def evaluate_notification(
         "previous_kd_k": previous_kd_k,
         "previous_kd_d": previous_kd_d,
         "previous_kd_j": previous_kd_j,
+        "analysis_is_valid": analysis_is_valid,
+        "data_quality_issues": data_quality_issues or [],
+        "macd_analysis": macd_analysis,
     }
 
     return rule_engine.evaluate(context)

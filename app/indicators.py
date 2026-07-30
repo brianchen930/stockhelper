@@ -4,6 +4,7 @@ def calculate_moving_averages(data: pd.DataFrame):
     result = data.copy()
 
     result["ma5"] = result["Close"].rolling(window=5).mean()
+    result["ma10"] = result["Close"].rolling(window=10).mean()
     result["ma20"] = result["Close"].rolling(window=20).mean()
     result["ma60"] = result["Close"].rolling(window=60).mean()
 

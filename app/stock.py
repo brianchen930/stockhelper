@@ -2,6 +2,8 @@ import yfinance as yf
 import pandas as pd
 
 from app.analysis_engine import build_technical_summary
+from app.analysis import analyze_timeframes
+from app.market_data import is_finite_number, normalize_history
 from app.strategies import analyze_ma_strategy
 from app.indicators import (
     calculate_moving_averages,
@@ -9,13 +11,72 @@ from app.indicators import (
     calculate_macd,
     calculate_kd,
 )
+from app.macd_analysis import analyze_macd
 
 
 def _valid_number(value) -> bool:
-    try:
-        return value is not None and not pd.isna(value) and float(value) > 0
-    except (TypeError, ValueError):
-        return False
+    return is_finite_number(value) and float(value) > 0
+
+
+def _finite_or_none(value, digits: int | None = None):
+    if not is_finite_number(value):
+        return None
+    number = float(value)
+    return round(number, digits) if digits is not None else number
+
+
+def _build_insufficient_analysis(
+    stock_code: str,
+    data: pd.DataFrame,
+    data_quality: dict,
+) -> dict:
+    """行情少於兩筆有效 Close 時，回傳可安全顯示的分析結構。"""
+    timeframe_analysis = analyze_timeframes(data)
+    result = {
+        "stock_code": stock_code,
+        "date": data_quality.get("latest_valid_date"),
+        "close": data_quality.get("latest_valid_close"),
+        "change": None,
+        "change_percent": None,
+        "rsi": None,
+        "ma5": None,
+        "ma10": None,
+        "ma20": None,
+        "ma60": None,
+        "macd": None,
+        "macd_signal": None,
+        "macd_histogram": None,
+        "previous_macd": None,
+        "previous_macd_signal": None,
+        "previous_macd_histogram": None,
+        "kd_k": None,
+        "kd_d": None,
+        "kd_j": None,
+        "previous_kd_k": None,
+        "previous_kd_d": None,
+        "previous_kd_j": None,
+        "analysis": {
+            "trend": "資料不足",
+            "signal": "資料不足",
+            "reasons": ["最新行情資料不完整，本次不進行完整技術判斷"],
+        },
+        "realtime_price": None,
+        "price_change": None,
+        "price_change_percent": None,
+        "volume": None,
+        "price_source": "close",
+        "benchmark_change_percent": None,
+        "market_relative_performance": {
+            "difference": None,
+            "label": "資料不足",
+            "stock_change_percent": None,
+            "benchmark_change_percent": None,
+        },
+        "data_quality": data_quality,
+        "timeframe_analysis": timeframe_analysis,
+    }
+    result["technical_summary"] = build_technical_summary(result)
+    return result
 
 
 def classify_market_relative_performance(
@@ -24,15 +85,22 @@ def classify_market_relative_performance(
 ) -> dict[str, float | str | None]:
     """將個股相對大盤的表現分類為優於、略優於、持平、略弱於或弱於大盤。"""
 
-    if stock_change_percent is None or benchmark_change_percent is None:
+    if not is_finite_number(stock_change_percent) or not is_finite_number(benchmark_change_percent):
         return {
             "difference": None,
             "label": "資料不足",
-            "stock_change_percent": stock_change_percent,
-            "benchmark_change_percent": benchmark_change_percent,
+            "stock_change_percent": _finite_or_none(stock_change_percent),
+            "benchmark_change_percent": _finite_or_none(benchmark_change_percent),
         }
 
-    difference = round(stock_change_percent - benchmark_change_percent, 2)
+    difference = round(float(stock_change_percent) - float(benchmark_change_percent), 2)
+    if not is_finite_number(difference):
+        return {
+            "difference": None,
+            "label": "資料不足",
+            "stock_change_percent": _finite_or_none(stock_change_percent),
+            "benchmark_change_percent": _finite_or_none(benchmark_change_percent),
+        }
 
     if difference >= 2:
         label = "優於大盤"
@@ -58,7 +126,7 @@ def get_market_change_percent(index_symbol: str = "^TWII") -> float | None:
 
     try:
         ticker = yf.Ticker(index_symbol)
-        data = ticker.history(
+        raw_data = ticker.history(
             period="5d",
             interval="1d",
             auto_adjust=False,
@@ -66,7 +134,8 @@ def get_market_change_percent(index_symbol: str = "^TWII") -> float | None:
     except Exception:
         return None
 
-    if data.empty or len(data) < 2:
+    data, _ = normalize_history(raw_data)
+    if len(data) < 2:
         return None
 
     latest = data.iloc[-1]
@@ -91,6 +160,7 @@ def get_realtime_price(stock_code: str) -> dict | None:
     previous_close = None
     volume = None
     price_source = "realtime"
+    realtime_date = None
 
     try:
         fast_info = ticker.fast_info
@@ -103,15 +173,14 @@ def get_realtime_price(stock_code: str) -> dict | None:
     intraday = None
     daily = None
 
-    if not _valid_number(last_price) or not _valid_number(previous_close):
-        try:
-            daily = ticker.history(
-                period="5d",
-                interval="1d",
-                auto_adjust=False,
-            )
-        except Exception:
-            daily = None
+    try:
+        daily = ticker.history(
+            period="5d",
+            interval="1d",
+            auto_adjust=False,
+        )
+    except Exception:
+        daily = None
 
     if not _valid_number(volume):
         try:
@@ -122,6 +191,11 @@ def get_realtime_price(stock_code: str) -> dict | None:
             )
         except Exception:
             intraday = None
+
+    if daily is not None:
+        daily, _ = normalize_history(daily)
+        if not daily.empty:
+            realtime_date = daily.index[-1]
 
     if not _valid_number(last_price):
         if daily is None or daily.empty:
@@ -142,6 +216,8 @@ def get_realtime_price(stock_code: str) -> dict | None:
                 volume = int(intraday["Volume"].sum())
             except Exception:
                 volume = None
+            if realtime_date is None:
+                realtime_date = intraday.index[-1]
         elif daily is not None and not daily.empty:
             volume = daily.iloc[-1]["Volume"]
 
@@ -155,6 +231,7 @@ def get_realtime_price(stock_code: str) -> dict | None:
 
     return {
         "realtime_price": realtime_price,
+        "date": None if realtime_date is None else pd.Timestamp(realtime_date).strftime("%Y-%m-%d"),
         "price_change": price_change,
         "price_change_percent": price_change_percent,
         "volume": int(volume) if _valid_number(volume) else None,
@@ -165,7 +242,8 @@ def get_realtime_price(stock_code: str) -> dict | None:
 def get_stock_price(stock_code: str):
     ticker = yf.Ticker(f"{stock_code}.TW")
 
-    data = ticker.history(period="3mo")
+    raw_data = ticker.history(period="3mo")
+    data, _ = normalize_history(raw_data)
 
     if len(data) < 2:
         return None
@@ -198,12 +276,13 @@ def get_stock_history(
 ):
     ticker = yf.Ticker(f"{stock_code}.TW")
 
-    data = ticker.history(
+    raw_data = ticker.history(
         period=period,
         interval=interval,
         auto_adjust=False,
     )
 
+    data, quality = normalize_history(raw_data)
     if data.empty:
         return None
 
@@ -212,11 +291,11 @@ def get_stock_history(
     for date, row in data.iterrows():
         history.append({
             "date": date.strftime("%Y-%m-%d"),
-            "open": round(float(row["Open"]), 2),
-            "high": round(float(row["High"]), 2),
-            "low": round(float(row["Low"]), 2),
-            "close": round(float(row["Close"]), 2),
-            "volume": int(row["Volume"]),
+            "open": _finite_or_none(row["Open"], 2),
+            "high": _finite_or_none(row["High"], 2),
+            "low": _finite_or_none(row["Low"], 2),
+            "close": _finite_or_none(row["Close"], 2),
+            "volume": int(row["Volume"]) if is_finite_number(row["Volume"]) else None,
         })
 
     return {
@@ -224,6 +303,7 @@ def get_stock_history(
         "period": period,
         "interval": interval,
         "count": len(history),
+        "data_quality": quality,
         "history": history,
     }
 
@@ -234,12 +314,13 @@ def get_stock_indicators(
 ):
     ticker = yf.Ticker(f"{stock_code}.TW")
 
-    data = ticker.history(
+    raw_data = ticker.history(
         period=period,
         interval="1d",
         auto_adjust=False,
     )
 
+    data, quality = normalize_history(raw_data)
     if data.empty:
         return None
 
@@ -265,7 +346,7 @@ def get_stock_indicators(
     latest = data.iloc[-1]
     latest_rsi = latest["RSI14"]
 
-    if pd.isna(latest_rsi):
+    if not is_finite_number(latest_rsi):
         rsi_value = None
     else:
         rsi_value = round(float(latest_rsi), 2)
@@ -277,19 +358,25 @@ def get_stock_indicators(
         "rsi": rsi_value,
         "ma5": (
             round(float(latest["ma5"]), 2)
-            if not pd.isna(latest["ma5"])
+            if is_finite_number(latest["ma5"])
+            else None
+        ),
+        "ma10": (
+            round(float(latest["ma10"]), 2)
+            if is_finite_number(latest["ma10"])
             else None
         ),
         "ma20": (
             round(float(latest["ma20"]), 2)
-            if not pd.isna(latest["ma20"])
+            if is_finite_number(latest["ma20"])
             else None
         ),
         "ma60": (
             round(float(latest["ma60"]), 2)
-            if not pd.isna(latest["ma60"])
+            if is_finite_number(latest["ma60"])
             else None
         ),
+        "data_quality": quality,
     }
 
 
@@ -299,14 +386,15 @@ def get_stock_analysis(
 ):
     ticker = yf.Ticker(f"{stock_code}.TW")
 
-    data = ticker.history(
+    raw_data = ticker.history(
         period=period,
         interval="1d",
         auto_adjust=False,
     )
 
-    if data.empty:
-        return None
+    data, data_quality = normalize_history(raw_data)
+    if len(data) < 2:
+        return _build_insufficient_analysis(stock_code, data, data_quality)
 
     # 計算均線
     data = calculate_moving_averages(data)
@@ -346,7 +434,7 @@ def get_stock_analysis(
     previous_j = previous["KD_J"]
     latest_rsi = latest["RSI14"]
 
-    if pd.isna(latest_rsi):
+    if not is_finite_number(latest_rsi):
         rsi_value = None
     else:
         rsi_value = round(float(latest_rsi), 2)
@@ -354,7 +442,13 @@ def get_stock_analysis(
     close_price = round(float(latest["Close"]), 2)
     previous_close_price = round(float(previous["Close"]), 2)
     change = close_price - previous_close_price
-    change_percent = round((change / previous_close_price) * 100, 2) if previous_close_price != 0 else None
+    change_percent = (
+        round((change / previous_close_price) * 100, 2)
+        if is_finite_number(change)
+        and is_finite_number(previous_close_price)
+        and previous_close_price != 0
+        else None
+    )
     benchmark_change_percent = get_market_change_percent()
     market_relative_performance = classify_market_relative_performance(
         stock_change_percent=change_percent,
@@ -364,84 +458,90 @@ def get_stock_analysis(
     analysis_result = {
         "stock_code": stock_code,
         "date": data.index[-1].strftime("%Y-%m-%d"),
+        "history_date": data.index[-1].strftime("%Y-%m-%d"),
         "close": close_price,
         "change": round(change, 2),
         "change_percent": change_percent,
         "rsi": rsi_value,
         "ma5": (
             round(float(latest["ma5"]), 2)
-            if not pd.isna(latest["ma5"])
+            if is_finite_number(latest["ma5"])
+            else None
+        ),
+        "ma10": (
+            round(float(latest["ma10"]), 2)
+            if is_finite_number(latest["ma10"])
             else None
         ),
         "ma20": (
             round(float(latest["ma20"]), 2)
-            if not pd.isna(latest["ma20"])
+            if is_finite_number(latest["ma20"])
             else None
         ),
         "ma60": (
             round(float(latest["ma60"]), 2)
-            if not pd.isna(latest["ma60"])
+            if is_finite_number(latest["ma60"])
             else None
         ),
         "analysis": strategy_result,
         "macd": (
             round(float(latest["MACD"]), 4)
-            if not pd.isna(latest["MACD"])
+            if is_finite_number(latest["MACD"])
             else None
         ),
         "macd_signal": (
             round(float(latest["MACD_SIGNAL"]), 4)
-            if not pd.isna(latest["MACD_SIGNAL"])
+            if is_finite_number(latest["MACD_SIGNAL"])
             else None
         ),
         "macd_histogram": (
             round(float(latest["MACD_HIST"]), 4)
-            if not pd.isna(latest["MACD_HIST"])
+            if is_finite_number(latest["MACD_HIST"])
             else None
         ),
         "previous_macd": (
             round(float(previous["MACD"]), 4)
-            if not pd.isna(previous["MACD"])
+            if is_finite_number(previous["MACD"])
             else None
         ),
         "previous_macd_signal": (
             round(float(previous["MACD_SIGNAL"]), 4)
-            if not pd.isna(previous["MACD_SIGNAL"])
+            if is_finite_number(previous["MACD_SIGNAL"])
             else None
         ),
         "previous_macd_histogram": (
             round(float(previous["MACD_HIST"]), 4)
-            if not pd.isna(previous["MACD_HIST"])
+            if is_finite_number(previous["MACD_HIST"])
             else None
         ),
         "kd_k": (
             round(float(latest_k), 2)
-            if not pd.isna(latest_k)
+            if is_finite_number(latest_k)
             else None
         ),
         "kd_d": (
             round(float(latest_d), 2)
-            if not pd.isna(latest_d)
+            if is_finite_number(latest_d)
             else None
         ),
         "kd_j": (
             round(float(latest_j), 2)
-            if not pd.isna(latest_j)
+            if is_finite_number(latest_j)
             else None
         ),
         "previous_kd_k": (
             round(float(previous_k), 2)
-            if not pd.isna(previous_k)
+            if is_finite_number(previous_k)
             else None
         ),
         "previous_kd_d": (
             round(float(previous_d), 2)
-            if not pd.isna(previous_d)
+            if is_finite_number(previous_d)
             else None
         ),
         "previous_kd_j": (
             round(float(previous_j), 2)
-            if not pd.isna(previous_j)
+            if is_finite_number(previous_j)
             else None
         ),
     }
@@ -449,6 +549,7 @@ def get_stock_analysis(
     realtime_data = get_realtime_price(stock_code) or {}
     analysis_result.update({
         "realtime_price": realtime_data.get("realtime_price", close_price),
+        "realtime_date": realtime_data.get("date"),
         "price_change": realtime_data.get("price_change", round(change, 2)),
         "price_change_percent": realtime_data.get(
             "price_change_percent",
@@ -458,8 +559,18 @@ def get_stock_analysis(
         "price_source": realtime_data.get("price_source", "close"),
         "benchmark_change_percent": benchmark_change_percent,
         "market_relative_performance": market_relative_performance,
+        "data_quality": data_quality,
     })
+    analysis_result["macd_analysis"] = analyze_macd(
+        analysis_result.get("macd"),
+        analysis_result.get("macd_signal"),
+        analysis_result.get("macd_histogram"),
+        analysis_result.get("previous_macd_histogram"),
+        analysis_result.get("previous_macd"),
+        analysis_result.get("previous_macd_signal"),
+    )
     analysis_result["technical_summary"] = build_technical_summary(analysis_result)
+    analysis_result["timeframe_analysis"] = analyze_timeframes(data)
 
     return analysis_result
 

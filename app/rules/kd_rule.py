@@ -55,19 +55,19 @@ class KDRule(BaseRule):
 
             if current_k < 20 and current_d < 20:
                 result["messages"].append(
-                    "【KD +2】在低檔區形成黃金交叉，"
+                    "【KD｜多方規則命中】在低檔區形成黃金交叉，"
                     "可能出現超賣反彈。"
                 )
 
             elif current_k > 80 and current_d > 80:
                 result["messages"].append(
-                    "【KD +2】在高檔區形成黃金交叉，"
+                    "【KD｜多方規則命中】在高檔區形成黃金交叉，"
                     "短線動能轉強，但須注意追高風險。"
                 )
 
             else:
                 result["messages"].append(
-                    "【KD +2】形成黃金交叉，短線動能轉強。"
+                    "【KD｜多方規則命中】形成黃金交叉，短線動能轉強。"
                 )
 
         elif death_cross:
@@ -76,19 +76,19 @@ class KDRule(BaseRule):
 
             if current_k > 80 and current_d > 80:
                 result["messages"].append(
-                    "【KD +2】在高檔區形成死亡交叉，"
+                    "【KD｜空方規則命中】在高檔區形成死亡交叉，"
                     "需注意短線轉弱。"
                 )
 
             elif current_k < 20 and current_d < 20:
                 result["messages"].append(
-                    "【KD +2】在低檔區形成死亡交叉，"
+                    "【KD｜空方規則命中】在低檔區形成死亡交叉，"
                     "空方動能可能延續。"
                 )
 
             else:
                 result["messages"].append(
-                    "【KD +2】形成死亡交叉，短線動能轉弱。"
+                    "【KD｜空方規則命中】形成死亡交叉，短線動能轉弱。"
                 )
 
         self._evaluate_position(
@@ -112,7 +112,7 @@ class KDRule(BaseRule):
             result["score"] += 1
 
             result["messages"].append(
-                "【KD +1】K、D 位於高檔超買區，"
+                "【KD｜風險規則命中】K、D 位於高檔超買區，"
                 "短線需注意拉回風險。"
             )
 
@@ -121,8 +121,8 @@ class KDRule(BaseRule):
             result["score"] += 1
 
             result["messages"].append(
-                "【KD +1】K、D 位於低檔超賣區，"
-                "可能接近短線反彈位置。"
+                "【KD｜風險規則命中】K、D 位於低檔超賣區，"
+                "跌幅可能較深，但尚未確認止跌。"
             )
 
         if current_j is None:
@@ -133,7 +133,7 @@ class KDRule(BaseRule):
             result["score"] += 1
 
             result["messages"].append(
-                f"【KD +1】J 值為 {current_j:.2f}，高於 100，"
+                f"【KD｜風險規則命中】J 值為 {current_j:.2f}，高於 100，"
                 "短線動能偏熱。"
             )
 
@@ -142,6 +142,6 @@ class KDRule(BaseRule):
             result["score"] += 1
 
             result["messages"].append(
-                f"【KD +1】J 值為 {current_j:.2f}，低於 0，"
+                f"【KD｜空方規則命中】J 值為 {current_j:.2f}，低於 0，"
                 "短線動能偏弱。"
             )

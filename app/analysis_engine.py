@@ -1,11 +1,14 @@
 from typing import Any
 
+from app.market_data import is_finite_number
+from app.macd_analysis import analyze_macd, format_macd_summary
+
 
 def build_technical_summary(data: dict) -> str:
     """將技術指標整理成適合終端機與通知顯示的簡短摘要。"""
 
     rsi = data.get("rsi")
-    if rsi is None:
+    if not is_finite_number(rsi):
         rsi_text = "RSI 資料不足"
     elif rsi >= 70:
         rsi_text = f"RSI {rsi:.2f}（超買）"
@@ -14,25 +17,18 @@ def build_technical_summary(data: dict) -> str:
     else:
         rsi_text = f"RSI {rsi:.2f}（中性）"
 
-    macd = data.get("macd")
-    macd_histogram = data.get("macd_histogram")
-    previous_macd_histogram = data.get("previous_macd_histogram")
-    if macd is None:
-        macd_text = "MACD 資料不足"
-    else:
-        macd_state = "多" if macd > 0 else "空" if macd < 0 else "中性"
-        histogram_state = ""
-        if macd_histogram is not None and previous_macd_histogram is not None:
-            if macd_histogram > previous_macd_histogram:
-                histogram_state = "，柱狀體上升"
-            elif macd_histogram < previous_macd_histogram:
-                histogram_state = "，柱狀體下降"
-            else:
-                histogram_state = "，柱狀體持平"
-        macd_text = f"MACD {macd:.2f}（{macd_state}{histogram_state}）"
+    macd_result = data.get("macd_analysis") or analyze_macd(
+        data.get("macd"),
+        data.get("macd_signal"),
+        data.get("macd_histogram"),
+        data.get("previous_macd_histogram"),
+        data.get("previous_macd"),
+        data.get("previous_macd_signal"),
+    )
+    macd_text = format_macd_summary(macd_result)
 
     kd_j = data.get("kd_j")
-    if kd_j is None:
+    if not is_finite_number(kd_j):
         kd_text = "KD J 資料不足"
     elif kd_j < 0:
         kd_text = f"KD J {kd_j:.2f}（弱）"
@@ -46,7 +42,7 @@ def build_technical_summary(data: dict) -> str:
     ma5 = data.get("ma5")
     ma20 = data.get("ma20")
     ma60 = data.get("ma60")
-    if None in (ma5, ma20, ma60):
+    if not all(is_finite_number(value) for value in (ma5, ma20, ma60)):
         ma_text = "資料不足"
     elif ma5 > ma20 > ma60:
         ma_text = "多頭排列"
@@ -63,6 +59,7 @@ def generate_analysis(
     signal: str,
     score: int,
     matched_rules: list[Any],
+    analysis_is_valid: bool = True,
 ) -> dict[str, str]:
     """
     根據趨勢、訊號、分數與命中規則，產生綜合技術分析。
@@ -77,6 +74,15 @@ def generate_analysis(
         包含方向、強度、摘要與建議的字典
     """
 
+    if not analysis_is_valid:
+        return {
+            "market_bias": "資料不足",
+            "strength": "資料不足",
+            "strength_label": "基礎訊號強度",
+            "summary": "本次資料不足，不產生操作方向，請等待下一次有效行情資料。",
+            "suggestion": "",
+        }
+
     rule_bias = _analyze_rule_bias(matched_rules)
 
     market_bias = _determine_market_bias(
@@ -87,7 +93,6 @@ def generate_analysis(
     )
 
     strength = _determine_strength(
-        score=score,
         bullish_count=rule_bias["bullish_count"],
         bearish_count=rule_bias["bearish_count"],
     )
@@ -101,17 +106,12 @@ def generate_analysis(
         bearish_count=rule_bias["bearish_count"],
     )
 
-    suggestion = _build_suggestion(
-        market_bias=market_bias,
-        strength=strength,
-        trend=trend,
-    )
-
     return {
         "market_bias": market_bias,
         "strength": strength,
+        "strength_label": "基礎訊號強度",
         "summary": summary,
-        "suggestion": suggestion,
+        "suggestion": "",
     }
 
 
@@ -150,9 +150,14 @@ def _analyze_rule_bias(matched_rules: list[Any]) -> dict[str, int]:
     for rule in matched_rules:
         rule_text = _extract_rule_text(rule)
 
+        if "｜多方" in rule_text:
+            bullish_count += 1
+            continue
+        if "｜空方" in rule_text:
+            bearish_count += 1
+            continue
         if any(keyword in rule_text for keyword in bullish_keywords):
             bullish_count += 1
-
         if any(keyword in rule_text for keyword in bearish_keywords):
             bearish_count += 1
 
@@ -232,7 +237,6 @@ def _determine_market_bias(
 
 
 def _determine_strength(
-    score: int,
     bullish_count: int,
     bearish_count: int,
 ) -> str:
@@ -244,10 +248,10 @@ def _determine_strength(
 
     directional_rule_count = bullish_count + bearish_count
 
-    if score >= 5 or directional_rule_count >= 3:
+    if directional_rule_count >= 3:
         return "強"
 
-    if score >= 3 or directional_rule_count >= 2:
+    if directional_rule_count >= 2:
         return "中等"
 
     return "弱"
@@ -265,17 +269,15 @@ def _build_summary(
     產生人類可讀的分析摘要。
     """
 
-    trend_text = _get_trend_text(trend)
-
     if bullish_count > bearish_count:
         rule_text = (
-            f"目前命中 {bullish_count} 個偏多規則、"
-            f"{bearish_count} 個偏空規則，短線技術動能偏多。"
+            f"基礎規則中偏多 {bullish_count} 個、偏空 {bearish_count} 個，"
+            "指標訊號以偏多為主。"
         )
     elif bearish_count > bullish_count:
         rule_text = (
-            f"目前命中 {bearish_count} 個偏空規則、"
-            f"{bullish_count} 個偏多規則，短線技術動能偏空。"
+            f"基礎規則中偏空 {bearish_count} 個、偏多 {bullish_count} 個，"
+            "指標訊號以偏空為主。"
         )
     elif bullish_count == 0 and bearish_count == 0:
         rule_text = "目前尚未出現明確的多空技術規則。"
@@ -285,17 +287,17 @@ def _build_summary(
             "技術訊號存在分歧。"
         )
 
-    signal_text = {
-        "偏多": "系統目前的基礎訊號偏多。",
-        "偏空": "系統目前的基礎訊號偏空。",
-        "觀望": "系統目前的基礎訊號以觀望為主。",
-    }.get(signal, f"目前基礎訊號為「{signal}」。")
-
-    return (
-        f"{trend_text}{signal_text}"
-        f"{rule_text}"
-        f"整體判斷為「{market_bias}」，訊號強度為「{strength}」。"
+    trend_text = {
+        "多頭排列": "均線結構偏多",
+        "空頭排列": "均線結構偏空",
+        "均線糾結": "均線仍處於糾結狀態，方向尚未完全明朗",
+    }.get(trend, f"均線狀態為「{trend}」")
+    conflict = (
+        (signal == "偏多" and bearish_count > bullish_count)
+        or (signal == "偏空" and bullish_count > bearish_count)
     )
+    conflict_text = "，且基礎訊號與規則方向存在分歧" if conflict else ""
+    return f"{rule_text}{trend_text}{conflict_text}；基礎方向為「{market_bias}」。"
 
 
 def _get_trend_text(trend: str) -> str:

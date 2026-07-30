@@ -32,12 +32,12 @@ class RSIRule(BaseRule):
                 result["score"] -= 2
 
                 result["messages"].append(
-                    f"【RSI -2】RSI 為 {rsi:.2f}，市場非常過熱，"
+                    f"【RSI｜風險調整 -2】RSI 為 {rsi:.2f}，市場非常過熱，"
                     "偏多訊號需注意追高風險。"
                 )
             else:
                 result["messages"].append(
-                    f"【RSI +0】RSI 為 {rsi:.2f}，市場非常過熱，"
+                    f"【RSI｜風險 0】RSI 為 {rsi:.2f}，市場非常過熱，"
                     "需注意短線拉回風險。"
                 )
 
@@ -46,12 +46,12 @@ class RSIRule(BaseRule):
                 result["score"] -= 1
 
                 result["messages"].append(
-                    f"【RSI -1】RSI 為 {rsi:.2f}，進入超買區，"
+                    f"【RSI｜風險調整 -1】RSI 為 {rsi:.2f}，進入超買區，"
                     "偏多訊號可信度降低，不宜直接追價。"
                 )
             else:
                 result["messages"].append(
-                    f"【RSI +0】RSI 為 {rsi:.2f}，進入超買區，"
+                    f"【RSI｜風險 0】RSI 為 {rsi:.2f}，進入超買區，"
                     "需注意高檔震盪或拉回。"
                 )
 
@@ -60,13 +60,13 @@ class RSIRule(BaseRule):
                 result["score"] -= 2
 
                 result["messages"].append(
-                    f"【RSI -2】RSI 為 {rsi:.2f}，市場非常超賣，"
+                    f"【RSI｜風險調整 -2】RSI 為 {rsi:.2f}，市場非常超賣，"
                     "偏空訊號需注意追空風險。"
                 )
             else:
                 result["messages"].append(
-                    f"【RSI +0】RSI 為 {rsi:.2f}，市場非常超賣，"
-                    "可能出現短線反彈。"
+                    f"【RSI｜風險 0】RSI 為 {rsi:.2f}，市場非常超賣，"
+                    "跌幅可能較深，但尚未確認止跌。"
                 )
 
         elif rsi <= 30:
@@ -74,12 +74,12 @@ class RSIRule(BaseRule):
                 result["score"] -= 1
 
                 result["messages"].append(
-                    f"【RSI -1】RSI 為 {rsi:.2f}，進入超賣區，"
+                    f"【RSI｜風險調整 -1】RSI 為 {rsi:.2f}，進入超賣區，"
                     "偏空訊號可信度降低，可能出現反彈。"
                 )
             else:
                 result["messages"].append(
-                    f"【RSI +0】RSI 為 {rsi:.2f}，進入超賣區，"
+                    f"【RSI｜風險 0】RSI 為 {rsi:.2f}，進入超賣區，"
                     "需觀察是否出現止跌訊號。"
                 )
 
@@ -88,12 +88,12 @@ class RSIRule(BaseRule):
                 result["score"] += 1
 
                 result["messages"].append(
-                    f"【RSI +1】RSI 為 {rsi:.2f}，位於正常區間，"
+                    f"【RSI｜訊號確認 +1】RSI 為 {rsi:.2f}，位於正常區間，"
                     "目前訊號未受到極端 RSI 干擾。"
                 )
             else:
                 result["messages"].append(
-                    f"【RSI +0】RSI 為 {rsi:.2f}，位於正常區間。"
+                    f"【RSI｜中性 0】RSI 為 {rsi:.2f}，位於正常區間。"
                 )
 
         return result
