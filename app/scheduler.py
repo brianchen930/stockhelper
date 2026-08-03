@@ -389,7 +389,7 @@ def start_scheduler():
     scheduler.add_job(
         run_monitor_job,
         trigger="interval",
-        minutes=0.1,
+        minutes=0.5,
         id="watchlist_monitor",
         replace_existing=True
     )

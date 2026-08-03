@@ -136,6 +136,7 @@ def test_empty_download_returns_displayable_data_quality_result(monkeypatch):
         def history(self, **kwargs):
             return pd.DataFrame()
 
+    monkeypatch.setattr("app.stock.resolve_yahoo_symbol", lambda stock_code: f"{stock_code}.TW")
     monkeypatch.setattr("app.stock.yf.Ticker", lambda symbol: EmptyTicker())
     result = get_stock_analysis("2408")
 

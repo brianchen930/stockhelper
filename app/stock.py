@@ -1,5 +1,6 @@
 import yfinance as yf
 import pandas as pd
+from functools import lru_cache
 
 from app.analysis_engine import build_technical_summary
 from app.analysis import analyze_timeframes
@@ -12,6 +13,27 @@ from app.indicators import (
     calculate_kd,
 )
 from app.macd_analysis import analyze_macd
+
+
+@lru_cache(maxsize=500)
+def resolve_yahoo_symbol(stock_code: str) -> str:
+    """將原始台股代號解析為 Yahoo Finance 可用的上市或上櫃代號。"""
+    code = str(stock_code).strip()
+    if not code:
+        raise ValueError("股票代號不可為空")
+
+    for suffix in ("TW", "TWO"):
+        symbol = f"{code}.{suffix}"
+        try:
+            history = yf.Ticker(symbol).history(period="5d")
+        except Exception:
+            continue
+        if history is not None and not history.empty:
+            return symbol
+
+    raise ValueError(
+        f"股票代號 {code} 在 Yahoo Finance 的 {code}.TW 與 {code}.TWO 均無有效歷史資料"
+    )
 
 
 def _valid_number(value) -> bool:
@@ -153,7 +175,9 @@ def get_realtime_price(stock_code: str) -> dict | None:
     """取得盤中價格；fast_info 不可用時改用最近交易日收盤資料。"""
 
     try:
-        ticker = yf.Ticker(f"{stock_code}.TW")
+        ticker = yf.Ticker(resolve_yahoo_symbol(stock_code))
+    except ValueError:
+        raise
     except Exception:
         return None
     last_price = None
@@ -240,7 +264,7 @@ def get_realtime_price(stock_code: str) -> dict | None:
 
 
 def get_stock_price(stock_code: str):
-    ticker = yf.Ticker(f"{stock_code}.TW")
+    ticker = yf.Ticker(resolve_yahoo_symbol(stock_code))
 
     raw_data = ticker.history(period="3mo")
     data, _ = normalize_history(raw_data)
@@ -274,7 +298,7 @@ def get_stock_history(
     period: str = "3mo",
     interval: str = "1d",
 ):
-    ticker = yf.Ticker(f"{stock_code}.TW")
+    ticker = yf.Ticker(resolve_yahoo_symbol(stock_code))
 
     raw_data = ticker.history(
         period=period,
@@ -312,7 +336,7 @@ def get_stock_indicators(
     stock_code: str,
     period: str = "6mo",
 ):
-    ticker = yf.Ticker(f"{stock_code}.TW")
+    ticker = yf.Ticker(resolve_yahoo_symbol(stock_code))
 
     raw_data = ticker.history(
         period=period,
@@ -384,7 +408,7 @@ def get_stock_analysis(
     stock_code: str,
     period: str = "6mo",
 ):
-    ticker = yf.Ticker(f"{stock_code}.TW")
+    ticker = yf.Ticker(resolve_yahoo_symbol(stock_code))
 
     raw_data = ticker.history(
         period=period,
