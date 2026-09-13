@@ -11,3 +11,7 @@ __pycache__/
 
 # Environment
 .env
+
+# Local runtime verification database backup and machine certificate bundle
+runtime_verification/*.db
+runtime_verification/*.pem

@@ -1,0 +1,38 @@
+﻿[
+    {
+        "Path":  "C:\\Users\\brian\\OneDrive\\Desktop\\project\\台股\\app\\bayesian_support\\model.py",
+        "Hash":  "D517DD0550E779458B56EF0A434235B2C2CB3CB45AF300D3BBF0CA1C94F7F2BF"
+    },
+    {
+        "Path":  "C:\\Users\\brian\\OneDrive\\Desktop\\project\\台股\\app\\bayesian_support\\config.py",
+        "Hash":  "FA886FCBB745D726D186FCCD8A83AE17C6E1EE69E98C87265C8357AC9BFF89EB"
+    },
+    {
+        "Path":  "C:\\Users\\brian\\OneDrive\\Desktop\\project\\台股\\app\\bayesian_support\\features.py",
+        "Hash":  "F4D083C8F00DEC48D68A49B5114372C5017417991122B59A9D06CBA2B05F0486"
+    },
+    {
+        "Path":  "C:\\Users\\brian\\OneDrive\\Desktop\\project\\台股\\app\\bayesian_support\\backtest.py",
+        "Hash":  "ECDEA4E00E215B801BE54FAE159F7DAAF82CB2C36B168B4BA0765DC4FB76BFBF"
+    },
+    {
+        "Path":  "C:\\Users\\brian\\OneDrive\\Desktop\\project\\台股\\app\\bayesian_support\\evaluation.py",
+        "Hash":  "451F6E5934F8ECAC03B3129EA14210FC44F9AD798ED2A813136B293170453752"
+    },
+    {
+        "Path":  "C:\\Users\\brian\\OneDrive\\Desktop\\project\\台股\\app\\backtest\\support_event.py",
+        "Hash":  "669C9D7C10C1E1F91E2B119FC0D98FE0CF901F15A9E7C1A486359180F08993C1"
+    },
+    {
+        "Path":  "C:\\Users\\brian\\OneDrive\\Desktop\\project\\台股\\app\\backtest\\support_backtest.py",
+        "Hash":  "6AD7E92A96D6197B3ABAAD7515850947159AE31859EC60F0F73301D80E0FF6FB"
+    },
+    {
+        "Path":  "C:\\Users\\brian\\OneDrive\\Desktop\\project\\台股\\app\\volatility.py",
+        "Hash":  "0EC52D5EF6982663E5B4564C0068BA3C59A0D1813EC2E6641594A4D1648AFDCC"
+    },
+    {
+        "Path":  "C:\\Users\\brian\\OneDrive\\Desktop\\project\\台股\\data\\models\\bayesian_support\\2408.json",
+        "Hash":  "24D32C29FA09B03FD420A5536E2DE55E7BCD8197D527E75D4F55D3F11FA282C4"
+    }
+]

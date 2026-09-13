@@ -1,0 +1,27 @@
+{
+  "symbol": "2408",
+  "history": "data\\backtests\\support_events_2408_20260913T082716Z_da6fd64c\\history.csv",
+  "python": "3.13.14",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "pandas": "3.0.5",
+  "repeats": 1,
+  "includes_network": false,
+  "detector": "SupportResistanceEngine (unmodified)",
+  "results": [
+    {
+      "bars": 500,
+      "seconds": 21.922538799990434,
+      "events": 67
+    },
+    {
+      "bars": 1000,
+      "seconds": 56.23085180000635,
+      "events": 148
+    },
+    {
+      "bars": 2000,
+      "seconds": 128.4562154999876,
+      "events": 297
+    }
+  ]
+}

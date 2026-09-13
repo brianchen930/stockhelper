@@ -26,6 +26,10 @@ def evaluate_notification(
     analysis_is_valid=True,
     data_quality_issues=None,
     macd_analysis=None,
+    support_resistance=None,
+    support_resistance_state=None,
+    support_resistance_bar_closed=False,
+    now=None,
 ):
     context = {
         "current_signal": current_signal,
@@ -49,6 +53,10 @@ def evaluate_notification(
         "analysis_is_valid": analysis_is_valid,
         "data_quality_issues": data_quality_issues or [],
         "macd_analysis": macd_analysis,
+        "support_resistance": support_resistance,
+        "support_resistance_state": support_resistance_state,
+        "support_resistance_bar_closed": support_resistance_bar_closed,
+        "now": now,
     }
 
     return rule_engine.evaluate(context)

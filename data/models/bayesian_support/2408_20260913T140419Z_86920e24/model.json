@@ -1,0 +1,688 @@
+{
+  "model_version": "bayes_support_v1",
+  "config": {
+    "alpha": 1.0,
+    "min_training_events": 100,
+    "min_bucket_events": 10,
+    "active_features": [
+      "current_touch_number_bucket",
+      "touch_rebound_trend",
+      "touch_volume_level",
+      "volatility_level",
+      "support_source_count_bucket",
+      "distance_to_support_atr_bucket",
+      "zone_width_atr_bucket",
+      "bars_since_last_touch_bucket"
+    ],
+    "positive_lr": 1.1,
+    "negative_lr": 0.9,
+    "confidence_edges": [
+      0.4,
+      0.6,
+      0.75,
+      0.9
+    ],
+    "confidence_labels": [
+      "low",
+      "uncertain",
+      "moderate",
+      "high",
+      "very_high"
+    ],
+    "calibration_edges": [
+      0.0,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "log_loss_epsilon": 1e-15
+  },
+  "bins": {
+    "current_touch_number_bucket": {
+      "raw": "current_touch_number",
+      "categories": [
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "edges": [
+        1,
+        2,
+        3
+      ],
+      "right": true,
+      "minimum": 1,
+      "integer": true
+    },
+    "touch_rebound_trend": {
+      "raw": "touch_rebound_trend",
+      "categories": [
+        "strengthening",
+        "stable",
+        "weakening"
+      ]
+    },
+    "touch_volume_level": {
+      "raw": "touch_volume_level",
+      "categories": [
+        "low",
+        "normal",
+        "elevated",
+        "spike"
+      ]
+    },
+    "volatility_level": {
+      "raw": "volatility_level",
+      "categories": [
+        "低波動",
+        "中等波動",
+        "高波動",
+        "極高波動"
+      ]
+    },
+    "support_source_count_bucket": {
+      "raw": "support_source_count",
+      "categories": [
+        "1",
+        "2",
+        "3",
+        "4+"
+      ],
+      "edges": [
+        1,
+        2,
+        3
+      ],
+      "right": true,
+      "minimum": 1,
+      "integer": true
+    },
+    "distance_to_support_atr_bucket": {
+      "raw": "distance_to_support_atr",
+      "categories": [
+        "<=0.25",
+        "(0.25,0.5]",
+        "(0.5,1]",
+        ">1"
+      ],
+      "edges": [
+        0.25,
+        0.5,
+        1.0
+      ],
+      "right": true,
+      "minimum": 0
+    },
+    "zone_width_atr_bucket": {
+      "raw": "zone_width_atr",
+      "categories": [
+        "<0.5",
+        "[0.5,1)",
+        "[1,1.5)",
+        ">=1.5"
+      ],
+      "edges": [
+        0.5,
+        1.0,
+        1.5
+      ],
+      "right": false,
+      "minimum": 0
+    },
+    "bars_since_last_touch_bucket": {
+      "raw": "bars_since_last_touch",
+      "categories": [
+        "0-5",
+        "6-20",
+        "21-60",
+        ">60"
+      ],
+      "edges": [
+        5,
+        20,
+        60
+      ],
+      "right": true,
+      "minimum": 0,
+      "integer": true
+    },
+    "support_age_bars_bucket": {
+      "raw": "support_age_bars",
+      "categories": [
+        "0-20",
+        "21-60",
+        "61-120",
+        ">120"
+      ],
+      "edges": [
+        20,
+        60,
+        120
+      ],
+      "right": true,
+      "minimum": 0,
+      "integer": true
+    }
+  },
+  "metadata": {
+    "model_version": "bayes_support_v1",
+    "training_event_count": 352,
+    "training_sample_count": 295,
+    "training_success_count": 106,
+    "training_failure_count": 189,
+    "neutral_count": 57,
+    "excluded_label_count": 0,
+    "training_start": "2016-12-12T16:00:00+00:00",
+    "training_end": "2026-08-23T16:00:00+00:00",
+    "training_available_until": "2026-09-06T16:00:00+00:00",
+    "fit_as_of": "2026-09-10T16:00:00+00:00",
+    "symbols": [
+      "2408"
+    ],
+    "feature_list": [
+      "current_touch_number_bucket",
+      "touch_rebound_trend",
+      "touch_volume_level",
+      "volatility_level",
+      "support_source_count_bucket",
+      "distance_to_support_atr_bucket",
+      "zone_width_atr_bucket",
+      "bars_since_last_touch_bucket"
+    ],
+    "event_definition": {
+      "event_config": {
+        "touch_atr_threshold": 0.25,
+        "lookahead_bars": 10,
+        "success_rebound_atr": 2.0,
+        "failure_breakdown_atr": 0.5,
+        "exit_atr": 1.0,
+        "exit_bars": 2,
+        "min_history": 60,
+        "zone_match_atr": 0.5,
+        "same_bar_policy": "failure",
+        "evidence": {
+          "touch_exit_atr": 0.75,
+          "touch_exit_bars": 2,
+          "reaction_lookahead": 5,
+          "touch_success_atr": 1.0,
+          "touch_failure_atr": 0.5,
+          "weakening_ratio": 0.7,
+          "volume_ma_period": 20,
+          "volume_reaction_bars": 3,
+          "pre_volume_bars": 5,
+          "volume_ratio_low": 0.8,
+          "volume_ratio_high": 1.2,
+          "volume_ratio_spike": 1.8,
+          "rebound_volume_strong": 1.2,
+          "rebound_volume_weak": 1.0
+        }
+      },
+      "detector_config": {
+        "lookback": 120,
+        "swing_window": 3,
+        "swing_min_pct": 0.005,
+        "swing_atr_factor": 0.5,
+        "atr_period": 14,
+        "vp_window": 60,
+        "vp_bins": 40,
+        "vp_bin_size": null,
+        "vp_max_bins": 500,
+        "hvn_fraction": 0.3,
+        "vwap_window": 20,
+        "kmeans_max_clusters": 5,
+        "kmeans_min_points": 3,
+        "kmeans_iterations": 100,
+        "kmeans_convergence": 1e-08,
+        "merge_tolerance_pct": 0.01,
+        "zone_padding_pct": 0.002,
+        "neutral_tolerance_pct": 0.002,
+        "reaction_pct": 0.01,
+        "reaction_bars": 5,
+        "touch_saturation": 4.0,
+        "volume_saturation": 3.0,
+        "recency_half_life": 60.0,
+        "recency_floor": 0.25,
+        "max_bar_range_ratio": 3.0,
+        "max_close_jump_ratio": 3.0,
+        "max_distance_pct": 0.2,
+        "max_support_zones": 3,
+        "max_resistance_zones": 3,
+        "max_active_zones": 3,
+        "ranking_strength_weight": 0.03,
+        "method_weights": {
+          "swing": 1.0,
+          "volume_profile": 1.0,
+          "vwap": 1.0,
+          "kmeans": 1.0
+        },
+        "score_weights": {
+          "consensus": 0.55,
+          "touch": 0.2,
+          "volume": 0.1,
+          "recency": 0.15
+        },
+        "strength_thresholds": [
+          [
+            0.0,
+            "weak"
+          ],
+          [
+            4.0,
+            "medium"
+          ],
+          [
+            6.0,
+            "strong"
+          ],
+          [
+            8.0,
+            "very_strong"
+          ]
+        ]
+      },
+      "source_schema_version": 2,
+      "source_sha256": "e99e90a110c364eac122617be8314f6654a99584d368439355222e6a12ad9056"
+    },
+    "duplicate_count": 0,
+    "probability_scope": "P(success | evidence, resolved within configured horizon)"
+  },
+  "prior": 0.3602693602693603,
+  "likelihoods": {
+    "current_touch_number_bucket": {
+      "1": {
+        "success_count": 19,
+        "failure_count": 27,
+        "bucket_count": 46,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.18181818181818182,
+        "p_given_failure": 0.14507772020725387,
+        "likelihood_ratio": 1.2532467532467533,
+        "log_likelihood_ratio": 0.22573758649125653,
+        "low_sample_warning": false
+      },
+      "2": {
+        "success_count": 11,
+        "failure_count": 13,
+        "bucket_count": 24,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.10909090909090909,
+        "p_given_failure": 0.07253886010362694,
+        "likelihood_ratio": 1.5038961038961038,
+        "log_likelihood_ratio": 0.4080591432852114,
+        "low_sample_warning": false
+      },
+      "3": {
+        "success_count": 3,
+        "failure_count": 11,
+        "bucket_count": 14,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.03636363636363636,
+        "p_given_failure": 0.06217616580310881,
+        "likelihood_ratio": 0.5848484848484848,
+        "log_likelihood_ratio": -0.5364024655556405,
+        "low_sample_warning": false
+      },
+      "4+": {
+        "success_count": 73,
+        "failure_count": 138,
+        "bucket_count": 211,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.6727272727272727,
+        "p_given_failure": 0.7202072538860104,
+        "likelihood_ratio": 0.9340745585349902,
+        "log_likelihood_ratio": -0.06819901681405272,
+        "low_sample_warning": false
+      }
+    },
+    "touch_rebound_trend": {
+      "strengthening": {
+        "success_count": 26,
+        "failure_count": 55,
+        "bucket_count": 81,
+        "observed_success_count": 64,
+        "observed_failure_count": 141,
+        "p_given_success": 0.40298507462686567,
+        "p_given_failure": 0.3888888888888889,
+        "likelihood_ratio": 1.0362473347547974,
+        "log_likelihood_ratio": 0.03560585545421435,
+        "low_sample_warning": false
+      },
+      "stable": {
+        "success_count": 14,
+        "failure_count": 29,
+        "bucket_count": 43,
+        "observed_success_count": 64,
+        "observed_failure_count": 141,
+        "p_given_success": 0.22388059701492538,
+        "p_given_failure": 0.20833333333333334,
+        "likelihood_ratio": 1.0746268656716418,
+        "log_likelihood_ratio": 0.07197349962508937,
+        "low_sample_warning": false
+      },
+      "weakening": {
+        "success_count": 24,
+        "failure_count": 57,
+        "bucket_count": 81,
+        "observed_success_count": 64,
+        "observed_failure_count": 141,
+        "p_given_success": 0.373134328358209,
+        "p_given_failure": 0.4027777777777778,
+        "likelihood_ratio": 0.9264024704065877,
+        "log_likelihood_ratio": -0.07644650549318399,
+        "low_sample_warning": false
+      }
+    },
+    "touch_volume_level": {
+      "low": {
+        "success_count": 39,
+        "failure_count": 46,
+        "bucket_count": 85,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.36363636363636365,
+        "p_given_failure": 0.24352331606217617,
+        "likelihood_ratio": 1.493230174081238,
+        "log_likelihood_ratio": 0.4009416755163471,
+        "low_sample_warning": false
+      },
+      "normal": {
+        "success_count": 33,
+        "failure_count": 62,
+        "bucket_count": 95,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.3090909090909091,
+        "p_given_failure": 0.32642487046632124,
+        "likelihood_ratio": 0.9468975468975469,
+        "log_likelihood_ratio": -0.05456437866290198,
+        "low_sample_warning": false
+      },
+      "elevated": {
+        "success_count": 22,
+        "failure_count": 46,
+        "bucket_count": 68,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.20909090909090908,
+        "p_given_failure": 0.24352331606217617,
+        "likelihood_ratio": 0.8586073500967117,
+        "log_likelihood_ratio": -0.15244356266843972,
+        "low_sample_warning": false
+      },
+      "spike": {
+        "success_count": 12,
+        "failure_count": 35,
+        "bucket_count": 47,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.11818181818181818,
+        "p_given_failure": 0.18652849740932642,
+        "likelihood_ratio": 0.6335858585858586,
+        "log_likelihood_ratio": -0.4563597578821039,
+        "low_sample_warning": false
+      }
+    },
+    "volatility_level": {
+      "低波動": {
+        "success_count": 0,
+        "failure_count": 0,
+        "bucket_count": 0,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.00909090909090909,
+        "p_given_failure": 0.0051813471502590676,
+        "likelihood_ratio": 1.7545454545454544,
+        "log_likelihood_ratio": 0.562209823112469,
+        "low_sample_warning": true
+      },
+      "中等波動": {
+        "success_count": 50,
+        "failure_count": 54,
+        "bucket_count": 104,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.4636363636363636,
+        "p_given_failure": 0.2849740932642487,
+        "likelihood_ratio": 1.6269421487603304,
+        "log_likelihood_ratio": 0.48670227060432414,
+        "low_sample_warning": false
+      },
+      "高波動": {
+        "success_count": 34,
+        "failure_count": 99,
+        "bucket_count": 133,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.3181818181818182,
+        "p_given_failure": 0.5181347150259067,
+        "likelihood_ratio": 0.6140909090909091,
+        "log_likelihood_ratio": -0.48761230138620837,
+        "low_sample_warning": false
+      },
+      "極高波動": {
+        "success_count": 22,
+        "failure_count": 36,
+        "bucket_count": 58,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.20909090909090908,
+        "p_given_failure": 0.19170984455958548,
+        "likelihood_ratio": 1.0906633906633907,
+        "log_likelihood_ratio": 0.08678612639739458,
+        "low_sample_warning": false
+      }
+    },
+    "support_source_count_bucket": {
+      "1": {
+        "success_count": 61,
+        "failure_count": 118,
+        "bucket_count": 179,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.5636363636363636,
+        "p_given_failure": 0.616580310880829,
+        "likelihood_ratio": 0.9141329258976317,
+        "log_likelihood_ratio": -0.08977928495396847,
+        "low_sample_warning": false
+      },
+      "2": {
+        "success_count": 34,
+        "failure_count": 59,
+        "bucket_count": 93,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.3181818181818182,
+        "p_given_failure": 0.31088082901554404,
+        "likelihood_ratio": 1.0234848484848484,
+        "log_likelihood_ratio": 0.023213322379782353,
+        "low_sample_warning": false
+      },
+      "3": {
+        "success_count": 6,
+        "failure_count": 9,
+        "bucket_count": 15,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.06363636363636363,
+        "p_given_failure": 0.05181347150259067,
+        "likelihood_ratio": 1.228181818181818,
+        "log_likelihood_ratio": 0.20553487917373703,
+        "low_sample_warning": false
+      },
+      "4+": {
+        "success_count": 5,
+        "failure_count": 3,
+        "bucket_count": 8,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.05454545454545454,
+        "p_given_failure": 0.02072538860103627,
+        "likelihood_ratio": 2.6318181818181814,
+        "log_likelihood_ratio": 0.9676749312206336,
+        "low_sample_warning": true
+      }
+    },
+    "distance_to_support_atr_bucket": {
+      "<=0.25": {
+        "success_count": 56,
+        "failure_count": 105,
+        "bucket_count": 161,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.5181818181818182,
+        "p_given_failure": 0.5492227979274611,
+        "likelihood_ratio": 0.9434819897084049,
+        "log_likelihood_ratio": -0.05817800316504762,
+        "low_sample_warning": false
+      },
+      "(0.25,0.5]": {
+        "success_count": 17,
+        "failure_count": 32,
+        "bucket_count": 49,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.16363636363636364,
+        "p_given_failure": 0.17098445595854922,
+        "likelihood_ratio": 0.9570247933884297,
+        "log_likelihood_ratio": -0.043925980457846237,
+        "low_sample_warning": false
+      },
+      "(0.5,1]": {
+        "success_count": 25,
+        "failure_count": 43,
+        "bucket_count": 68,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.23636363636363636,
+        "p_given_failure": 0.22797927461139897,
+        "likelihood_ratio": 1.0367768595041322,
+        "log_likelihood_ratio": 0.03611672721569015,
+        "low_sample_warning": false
+      },
+      ">1": {
+        "success_count": 8,
+        "failure_count": 9,
+        "bucket_count": 17,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.08181818181818182,
+        "p_given_failure": 0.05181347150259067,
+        "likelihood_ratio": 1.579090909090909,
+        "log_likelihood_ratio": 0.45684930745464314,
+        "low_sample_warning": false
+      }
+    },
+    "zone_width_atr_bucket": {
+      "<0.5": {
+        "success_count": 99,
+        "failure_count": 183,
+        "bucket_count": 282,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.9090909090909091,
+        "p_given_failure": 0.9533678756476683,
+        "likelihood_ratio": 0.9535573122529645,
+        "log_likelihood_ratio": -0.0475557485084249,
+        "low_sample_warning": false
+      },
+      "[0.5,1)": {
+        "success_count": 7,
+        "failure_count": 6,
+        "bucket_count": 13,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.07272727272727272,
+        "p_given_failure": 0.03626943005181347,
+        "likelihood_ratio": 2.0051948051948054,
+        "log_likelihood_ratio": 0.6957412157369918,
+        "low_sample_warning": false
+      },
+      "[1,1.5)": {
+        "success_count": 0,
+        "failure_count": 0,
+        "bucket_count": 0,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.00909090909090909,
+        "p_given_failure": 0.0051813471502590676,
+        "likelihood_ratio": 1.7545454545454544,
+        "log_likelihood_ratio": 0.562209823112469,
+        "low_sample_warning": true
+      },
+      ">=1.5": {
+        "success_count": 0,
+        "failure_count": 0,
+        "bucket_count": 0,
+        "observed_success_count": 106,
+        "observed_failure_count": 189,
+        "p_given_success": 0.00909090909090909,
+        "p_given_failure": 0.0051813471502590676,
+        "likelihood_ratio": 1.7545454545454544,
+        "log_likelihood_ratio": 0.562209823112469,
+        "low_sample_warning": true
+      }
+    },
+    "bars_since_last_touch_bucket": {
+      "0-5": {
+        "success_count": 9,
+        "failure_count": 9,
+        "bucket_count": 18,
+        "observed_success_count": 87,
+        "observed_failure_count": 162,
+        "p_given_success": 0.10989010989010989,
+        "p_given_failure": 0.060240963855421686,
+        "likelihood_ratio": 1.8241758241758241,
+        "log_likelihood_ratio": 0.6011282818396935,
+        "low_sample_warning": false
+      },
+      "6-20": {
+        "success_count": 50,
+        "failure_count": 91,
+        "bucket_count": 141,
+        "observed_success_count": 87,
+        "observed_failure_count": 162,
+        "p_given_success": 0.5604395604395604,
+        "p_given_failure": 0.5542168674698795,
+        "likelihood_ratio": 1.0112279025322504,
+        "log_likelihood_ratio": 0.011165337514978613,
+        "low_sample_warning": false
+      },
+      "21-60": {
+        "success_count": 21,
+        "failure_count": 39,
+        "bucket_count": 60,
+        "observed_success_count": 87,
+        "observed_failure_count": 162,
+        "p_given_success": 0.24175824175824176,
+        "p_given_failure": 0.24096385542168675,
+        "likelihood_ratio": 1.0032967032967033,
+        "log_likelihood_ratio": 0.003291281084072839,
+        "low_sample_warning": false
+      },
+      ">60": {
+        "success_count": 7,
+        "failure_count": 23,
+        "bucket_count": 30,
+        "observed_success_count": 87,
+        "observed_failure_count": 162,
+        "p_given_success": 0.08791208791208792,
+        "p_given_failure": 0.14457831325301204,
+        "likelihood_ratio": 0.6080586080586081,
+        "log_likelihood_ratio": -0.4974840068284163,
+        "low_sample_warning": false
+      }
+    }
+  }
+}

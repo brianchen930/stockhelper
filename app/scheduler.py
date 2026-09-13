@@ -12,11 +12,24 @@ from app.analysis_engine import generate_analysis
 from app.analysis.timeframe_summary import format_timeframe_discord
 from app.market_data import is_finite_number
 from app.data_quality import assess_analysis_quality
+from app.database import save_support_resistance_state
+from app.support_resistance_analysis.formatting import format_support_resistance_output
+from app.rules.support_resistance_rule import acknowledge_events, format_support_resistance_events
 
 scheduler = AsyncIOScheduler()
 
 TAIPEI_TZ = ZoneInfo("Asia/Taipei")
 DATA_QUALITY_DEBUG_ENABLED = False
+
+
+def support_resistance_bar_closed(sr: dict, now: datetime) -> bool:
+    """Yahoo daily Close during a Taiwan session is not a confirmed close."""
+    try:
+        day = datetime.fromisoformat(sr['as_of']).date()
+    except (KeyError, TypeError, ValueError):
+        return False
+    local = now.astimezone(TAIPEI_TZ)
+    return day < local.date() or (day == local.date() and (local.hour, local.minute) >= (13, 30))
 
 
 def should_run_monitoring(now: datetime | None = None, force: bool = False) -> bool:
@@ -181,6 +194,10 @@ def run_monitor_job():
             analysis_is_valid=analysis_is_valid,
             data_quality_issues=quality_result["issues"],
             macd_analysis=data.get("macd_analysis"),
+            support_resistance=data.get("support_resistance"),
+            support_resistance_state=previous_state.get("support_resistance_state"),
+            support_resistance_bar_closed=support_resistance_bar_closed(data.get("support_resistance") or {}, now),
+            now=now,
         )
 
         analysis_result = generate_analysis(
@@ -232,6 +249,11 @@ def run_monitor_job():
         print("  技術摘要：")
         for item in technical_summary.split(" / "):
             print(f"    ・{item}")
+        sr_text = data.get('support_resistance_text') or format_support_resistance_output(data.get('support_resistance'))
+        print(sr_text)
+        sr_events = rule_result.get('support_resistance_events', [])
+        for line in format_support_resistance_events(sr_events, data.get('support_resistance')):
+            print(line)
         print(
             f"  通知狀態：股票訊號分數 {rule_result['score']}｜"
             f"等級 {rule_result['level']}｜是否通知 {rule_result['should_notify']}"
@@ -266,10 +288,16 @@ def run_monitor_job():
             summary=analysis_result["summary"],
         )
 
-        should_send_notification = (
-            rule_result["should_notify"]
+        technical_send_notification = (
+            rule_result.get("technical_notify", rule_result["should_notify"])
             and notification_signature != previous_state.get("last_notification_signature")
         )
+        should_send_notification = technical_send_notification or rule_result.get('support_resistance_notify', False)
+        sr_state = rule_result.get('support_resistance_state')
+        if analysis_is_valid and sr_state:
+            # Persist observations even on delivery failure; pending event IDs
+            # survive restarts and are acknowledged only after successful send.
+            save_support_resistance_state(stock_code, sr_state)
 
         if should_send_notification:
             change_percent = data.get("price_change_percent")
@@ -297,6 +325,9 @@ def run_monitor_job():
                 "【技術摘要】",
                 *[f"・{item}" for item in technical_summary.split(" / ")],
                 "",
+                sr_text,
+                "",
+                *format_support_resistance_events(rule_result.get('support_resistance_notifications', []), data.get('support_resistance')),
                 "【命中規則】",
                 *([f"・{item}" for item in matched_rules] if matched_rules else ["・無"]),
                 "",
@@ -329,7 +360,10 @@ def run_monitor_job():
                 "message": "\n".join(stock_lines),
                 "signal": current_signal,
                 "trend": current_trend,
-                "notification_signature": notification_signature,
+                "notification_signature": (notification_signature if technical_send_notification
+                                           else previous_state.get('last_notification_signature')),
+                "support_resistance_state": sr_state,
+                "support_resistance_notifications": rule_result.get('support_resistance_notifications', []),
             })
 
         if analysis_is_valid:
@@ -355,6 +389,9 @@ def run_monitor_job():
         }
         for item in pending_notifications:
             sent = delivery_by_code[item["stock_code"]]["success"]
+            if sent and item.get('support_resistance_state'):
+                save_support_resistance_state(item['stock_code'], acknowledge_events(
+                    item['support_resistance_state'], item['support_resistance_notifications'], now))
             update_stock_state(
                 stock_code=item["stock_code"],
                 signal=item["signal"],

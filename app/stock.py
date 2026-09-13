@@ -13,6 +13,26 @@ from app.indicators import (
     calculate_kd,
 )
 from app.macd_analysis import analyze_macd
+from app.volatility import summarize_volatility
+from app.bayesian_support.integration import attach_bayesian_support
+from app.support_resistance_analysis import (
+    SupportResistanceEngine,
+    format_support_resistance_output,
+)
+
+
+def _attach_support_resistance(result, data):
+    """Optional analysis failure must not discard the stock's other indicators."""
+    try:
+        sr = SupportResistanceEngine().detect(data)
+        text = format_support_resistance_output(sr)
+    except Exception:
+        sr = {'error': 'Support/resistance unavailable', 'support_zones': [],
+              'resistance_zones': [], 'active_zones': []}
+        text = format_support_resistance_output(sr)
+    result['support_resistance'] = sr
+    result['support_resistance_text'] = text
+    attach_bayesian_support(result, data)
 
 
 @lru_cache(maxsize=500)
@@ -97,7 +117,9 @@ def _build_insufficient_analysis(
         "data_quality": data_quality,
         "timeframe_analysis": timeframe_analysis,
     }
+    result.update(summarize_volatility(data))
     result["technical_summary"] = build_technical_summary(result)
+    _attach_support_resistance(result, data)
     return result
 
 
@@ -380,6 +402,7 @@ def get_stock_indicators(
         "date": data.index[-1].strftime("%Y-%m-%d"),
         "close": round(float(latest["Close"]), 2),
         "rsi": rsi_value,
+        **summarize_volatility(data),
         "ma5": (
             round(float(latest["ma5"]), 2)
             if is_finite_number(latest["ma5"])
@@ -407,6 +430,7 @@ def get_stock_indicators(
 def get_stock_analysis(
     stock_code: str,
     period: str = "6mo",
+    *, research_mode: bool = False,
 ):
     ticker = yf.Ticker(resolve_yahoo_symbol(stock_code))
 
@@ -593,8 +617,14 @@ def get_stock_analysis(
         analysis_result.get("previous_macd"),
         analysis_result.get("previous_macd_signal"),
     )
+    analysis_result.update(summarize_volatility(data))
     analysis_result["technical_summary"] = build_technical_summary(analysis_result)
-    analysis_result["timeframe_analysis"] = analyze_timeframes(data)
+    # Display-only daily-close analysis; never feeds signal or RuleEngine scores.
+    _attach_support_resistance(analysis_result, data)
+    if research_mode:
+        analysis_result['support_resistance_text'] = format_support_resistance_output(
+            analysis_result['support_resistance'], research_mode=True)
+    analysis_result["timeframe_analysis"] = analyze_timeframes(data, analysis_result['support_resistance'])
 
     return analysis_result
 

@@ -1,0 +1,47 @@
+[
+  {
+    "has_sr": true,
+    "events": [
+      {
+        "id": "44d4a9ac01cb4e90b8bc0ed2ab945ed1",
+        "zone_id": "cabd94d1277f42f4abc1db11f9932fb3",
+        "event_type": "support_resistance",
+        "category": "NEAR_SUPPORT",
+        "message": "接近強支撐",
+        "level": "一般通知",
+        "score": 0,
+        "notify": false,
+        "zone": {
+          "type": "support",
+          "low": 479.014,
+          "high": 485.8126210414323,
+          "center": 482.41331052071615,
+          "strength_score": 6.25,
+          "strength_label": "strong",
+          "methods": [
+            "kmeans",
+            "swing_low"
+          ],
+          "touch_count": 6,
+          "distance_pct": -2.1474,
+          "last_touch_date": "2026-09-03T00:00:00+08:00",
+          "last_seen_date": "2026-09-11T00:00:00+08:00",
+          "method_count": 2,
+          "zone_low": 479.014,
+          "zone_high": 485.8126210414323,
+          "sources": [
+            "kmeans",
+            "swing_low"
+          ],
+          "strength": "strong"
+        },
+        "role": "support",
+        "price": 493.0,
+        "distance_pct": 1.4794549682880076,
+        "as_of": "2026-09-11T00:00:00+08:00",
+        "observed_at": "2026-09-12T14:48:03.592365+08:00"
+      }
+    ],
+    "should_notify": false
+  }
+]

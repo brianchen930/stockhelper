@@ -39,19 +39,18 @@ def build_technical_summary(data: dict) -> str:
     else:
         kd_text = f"KD J {kd_j:.2f}（中性）"
 
-    ma5 = data.get("ma5")
-    ma20 = data.get("ma20")
-    ma60 = data.get("ma60")
-    if not all(is_finite_number(value) for value in (ma5, ma20, ma60)):
-        ma_text = "資料不足"
-    elif ma5 > ma20 > ma60:
-        ma_text = "多頭排列"
-    elif ma5 < ma20 < ma60:
-        ma_text = "空頭排列"
-    else:
-        ma_text = "均線糾結"
+    # The strategy includes Close vs MA5 as well as MA ordering. Reuse its
+    # same-bar state, as RuleEngine/base summary do; do not classify it again.
+    ma_text = (data.get("analysis") or {}).get("trend") or "資料不足"
 
-    return f"{rsi_text} / {macd_text} / {kd_text} / 均線：{ma_text}"
+    summary = f"{rsi_text} / {macd_text} / {kd_text} / 日線趨勢：{ma_text}"
+    if "atr" in data:
+        atr, percent = data.get("atr"), data.get("atr_percent")
+        if is_finite_number(atr) and is_finite_number(percent):
+            summary += f" / ATR14：{atr:.2f}（ATR% {percent:.2f}%｜{data.get('volatility_level', '資料不足')}）"
+        else:
+            summary += " / ATR14：資料不足"
+    return summary
 
 
 def generate_analysis(

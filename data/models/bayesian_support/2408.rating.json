@@ -1,0 +1,43 @@
+{
+  "version": "support_rating_v1",
+  "rating_strategy": "distribution",
+  "thresholds": [
+    0.2219221652175104,
+    0.3503774046741678,
+    0.4447505492574229,
+    0.5729612801567702
+  ],
+  "fixed_thresholds": [
+    0.3,
+    0.4,
+    0.5,
+    0.6
+  ],
+  "distribution": {
+    "count": 230,
+    "mean": 0.39940092184132475,
+    "median": 0.4076362744617523,
+    "std": 0.18321014072244476,
+    "min": 0.0668800247148678,
+    "max": 0.9077530153794444,
+    "p10": 0.15660959912458502,
+    "p20": 0.2219221652175104,
+    "p25": 0.2508645365720177,
+    "p40": 0.3503774046741678,
+    "p50": 0.4076362744617523,
+    "p60": 0.4447505492574229,
+    "p75": 0.5219407807986582,
+    "p80": 0.5729612801567702,
+    "p90": 0.6496253331776514
+  },
+  "fallback_reason": null,
+  "minimum_samples": 100,
+  "reference_end": "2026-08-23T16:00:00+00:00",
+  "symbols": [
+    "2408"
+  ],
+  "calibration_status": "uncalibrated",
+  "interpretation": "relative_model_prediction_position",
+  "source_sha256": "027dbe45fd99370524f179e5a1b3099bcf1b0a3696fd29ced0c17e46191fa3d0",
+  "source_path": "data\\models\\bayesian_support\\2408_20260913T141108Z_174a42d9\\predictions.csv"
+}

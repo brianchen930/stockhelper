@@ -9,6 +9,7 @@ import pandas as pd
 from app.analysis.common import TimeframeResult
 from app.analysis.medium_term import analyze_medium_term
 from app.analysis.short_term import analyze_short_term
+from app.analysis.price_context import enrich_price_context
 
 
 class TimeframeAnalysis(TypedDict):
@@ -19,19 +20,20 @@ class TimeframeAnalysis(TypedDict):
     operation_reference: dict[str, str | list[str]]
 
 
-def analyze_timeframes(data: pd.DataFrame) -> TimeframeAnalysis:
+def analyze_timeframes(data: pd.DataFrame, support_resistance=None) -> TimeframeAnalysis:
     """執行兩個獨立分析器，再產生跨週期判斷。"""
     short = analyze_short_term(data)
     medium = analyze_medium_term(data)
     summary, warnings = summarize_timeframes(short, medium)
     operation_reference = build_operation_reference(short, medium)
-    return {
+    result = {
         "short_term": short,
         "medium_term": medium,
         "overall_summary": summary,
         "overall_warnings": warnings,
         "operation_reference": operation_reference,
     }
+    return enrich_price_context(result, support_resistance)
 
 
 def summarize_timeframes(

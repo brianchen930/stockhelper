@@ -1,0 +1,108 @@
+{
+  "metadata": {
+    "symbol": "2408",
+    "timeframe": "1d",
+    "config": {
+      "touch_atr_threshold": 0.25,
+      "lookahead_bars": 10,
+      "success_rebound_atr": 2.0,
+      "failure_breakdown_atr": 0.5,
+      "exit_atr": 1.0,
+      "exit_bars": 2,
+      "min_history": 60,
+      "zone_match_atr": 0.5,
+      "same_bar_policy": "failure"
+    },
+    "detector": "SupportResistanceEngine",
+    "detector_config": {
+      "lookback": 120,
+      "swing_window": 3,
+      "swing_min_pct": 0.005,
+      "swing_atr_factor": 0.5,
+      "atr_period": 14,
+      "vp_window": 60,
+      "vp_bins": 40,
+      "vp_bin_size": null,
+      "vp_max_bins": 500,
+      "hvn_fraction": 0.3,
+      "vwap_window": 20,
+      "kmeans_max_clusters": 5,
+      "kmeans_min_points": 3,
+      "kmeans_iterations": 100,
+      "kmeans_convergence": 1e-08,
+      "merge_tolerance_pct": 0.01,
+      "zone_padding_pct": 0.002,
+      "neutral_tolerance_pct": 0.002,
+      "reaction_pct": 0.01,
+      "reaction_bars": 5,
+      "touch_saturation": 4.0,
+      "volume_saturation": 3.0,
+      "recency_half_life": 60.0,
+      "recency_floor": 0.25,
+      "max_bar_range_ratio": 3.0,
+      "max_close_jump_ratio": 3.0,
+      "max_distance_pct": 0.2,
+      "max_support_zones": 3,
+      "max_resistance_zones": 3,
+      "max_active_zones": 3,
+      "ranking_strength_weight": 0.03,
+      "method_weights": {
+        "swing": 1.0,
+        "volume_profile": 1.0,
+        "vwap": 1.0,
+        "kmeans": 1.0
+      },
+      "score_weights": {
+        "consensus": 0.55,
+        "touch": 0.2,
+        "volume": 0.1,
+        "recency": 0.15
+      },
+      "strength_thresholds": [
+        [
+          0.0,
+          "weak"
+        ],
+        [
+          4.0,
+          "medium"
+        ],
+        [
+          6.0,
+          "strong"
+        ],
+        [
+          8.0,
+          "very_strong"
+        ]
+      ]
+    },
+    "bar_count": 2432,
+    "start": "2016-09-12T00:00:00+08:00",
+    "end": "2026-09-11T00:00:00+08:00",
+    "skipped": {
+      "incomplete_events": 2
+    },
+    "detector_warnings": {},
+    "elapsed_seconds": 169.27052520000143,
+    "schema_version": 1,
+    "support_cutoff": "t-1",
+    "atr_cutoff": "t",
+    "outcome_window": "t+1..t+N",
+    "return_units": "percent_points",
+    "rate_units": "fraction",
+    "source": "yfinance daily auto_adjust=False; symbol=2408.TW",
+    "retrieved_at": "2026-09-13T08:27:16.108006+00:00"
+  },
+  "summary": {
+    "total_events": 347,
+    "excluded_count": 0,
+    "success_count": 104,
+    "failure_count": 185,
+    "neutral_count": 58,
+    "success_rate": 0.29971181556195964,
+    "failure_rate": 0.5331412103746398,
+    "neutral_rate": 0.16714697406340057,
+    "resolved_success_rate": 0.35986159169550175
+  }
+}

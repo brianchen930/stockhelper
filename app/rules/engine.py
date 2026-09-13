@@ -4,6 +4,7 @@ from app.rules.signal_change_rule import SignalChangeRule
 from app.rules.rsi_rule import RSIRule
 from app.rules.macd_rule import MACDRule
 from app.rules.kd_rule import KDRule
+from app.rules.support_resistance_rule import SupportResistanceRule
 
 class RuleEngine:
     """
@@ -116,12 +117,24 @@ class RuleEngine:
         else:
             level = "一般通知"
 
+        sr = SupportResistanceRule().evaluate(context)
+        sr_notify = sr['should_notify']
+        if sr_notify:
+            triggered_rules.append(SupportResistanceRule.name)
+            priority = {'一般通知': 0, '注意通知': 1, '重要通知': 2}
+            level = max([level] + [e['level'] for e in sr['notifications']], key=priority.get)
+
         return {
-            "should_notify": should_notify,
+            "should_notify": should_notify or sr_notify,
+            "technical_notify": should_notify,
+            "support_resistance_notify": sr_notify,
+            "support_resistance_events": sr['events'],
+            "support_resistance_notifications": sr['notifications'],
+            "support_resistance_state": sr['state'],
             "market_signal_notify": should_notify,
             "data_alert_notify": False,
             "event_type": self._build_event_type(
-                event_types
+                event_types + (["support_resistance"] if sr_notify else [])
             ),
             "score": total_score,
             "technical_score": technical_score,

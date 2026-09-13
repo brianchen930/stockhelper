@@ -1,0 +1,9 @@
+{
+  "audited_events": 352,
+  "historical_reactions_before_event": true,
+  "volume_baselines_and_outcomes_match": true,
+  "historical_counts_match": true,
+  "live_source_files_unchanged": true,
+  "grouping_totals_match": true,
+  "csv_utf8_sig": true
+}

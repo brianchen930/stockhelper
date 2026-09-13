@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from pathlib import Path
 
 
@@ -40,6 +41,9 @@ def create_tables():
         connection.execute(
             "ALTER TABLE watchlist ADD COLUMN last_signal TEXT"
         )
+
+    if "support_resistance_state" not in existing_columns:
+        connection.execute("ALTER TABLE watchlist ADD COLUMN support_resistance_state TEXT")
 
     if "last_trend" not in existing_columns:
         connection.execute(
@@ -111,6 +115,7 @@ def get_all_stocks():
             last_notification_signature,
             last_data_error_at,
             last_data_issue_key,
+            support_resistance_state,
             created_at
         FROM watchlist
         ORDER BY id ASC
@@ -201,6 +206,19 @@ def save_data_quality_issue(stock_code: str, issue_key: str) -> None:
     )
     connection.commit()
     connection.close()
+
+
+def save_support_resistance_state(stock_code: str, state: dict) -> None:
+    """Persist zone observations and delivery receipts in the existing watchlist."""
+    connection = get_connection()
+    try:
+        connection.execute(
+            "UPDATE watchlist SET support_resistance_state = ? WHERE stock_code = ?",
+            (json.dumps(state, ensure_ascii=False, allow_nan=False), stock_code),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 def delete_stock(stock_code: str):
     connection = get_connection()
