@@ -19,23 +19,27 @@ def format_probability_block(candidate, *, research_mode=False, show_percent=Non
     result = candidate['result']
     display = candidate.get('display') or rate_support_probability(result).to_dict()
     lines = [f"・模型評估支撐：{candidate['support_low']:.2f}～{candidate['support_high']:.2f}"] if include_zone else []
-    value = display['rating']
+    value = candidate.get('adjusted_support_level', display['rating'])
     show_percent = settings.SHOW_BAYESIAN_PERCENT_IN_NORMAL_MODE if show_percent is None else show_percent
     if show_percent and value != '資料不足':
-        value += f"（{display['posterior_probability']:.0%}）"
+        probability = candidate.get('adjusted_support_probability', display['posterior_probability'])
+        value += f"（{probability:.0%}）"
     lines.append('支撐成功機率：' + value)
     if research_mode:
         # No filtering/top-three truncation: bucket counts and skipped reasons survive.
         lines.append('Research / Debug（等級為歷史模型預測的相對位置）')
         percent = lambda p: '資料不足' if p is None else f'{p:.1%}'
         lines.append('Posterior：' + percent(display['posterior_probability']))
+        if 'adjusted_support_probability' in candidate:
+            lines.append('Institutional Adjustment：provisional_log_odds_v1 / uncalibrated')
+            lines.append('Adjusted Posterior：' + percent(candidate['adjusted_support_probability']))
         lines.append('Prior：' + percent(result.get('prior_success_probability')))
         lines.append('Rating Strategy：' + display['rating_strategy'])
         lines.append('Rating Thresholds：' + str(display['thresholds']))
         lines.append('Calibration / Model Status：' + display['calibration_status'] + ' / ' + display['model_status'])
         lines.append('完整研究資料（含 Positive / Negative Evidence LR、Used / Skipped Evidence、Training / Bucket Samples）：')
         lines.append(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
-    elif display['rating_description']:
+    elif display['rating_description'] and 'adjusted_support_probability' not in candidate:
         lines.append(display['rating_description'])
     return '\n'.join(lines)
 

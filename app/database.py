@@ -18,6 +18,8 @@ def get_connection():
 
 def create_tables():
     connection = get_connection()
+    from app.institutional_flow.storage import create_tables as create_flow_tables
+    create_flow_tables(connection)
 
     connection.execute(
         """

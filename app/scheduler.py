@@ -432,7 +432,7 @@ def start_scheduler():
     )
 
     scheduler.start()
-    print("排程器已啟動，每 1 分鐘檢查一次交易時間")
+    print("排程器已啟動，每 30 分鐘檢查一次交易時間")
 
 
 def stop_scheduler():

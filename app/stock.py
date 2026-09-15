@@ -41,6 +41,8 @@ def resolve_yahoo_symbol(stock_code: str) -> str:
     code = str(stock_code).strip()
     if not code:
         raise ValueError("股票代號不可為空")
+    if code.upper().endswith(('.TW', '.TWO')):
+        return code.upper()
 
     for suffix in ("TW", "TWO"):
         symbol = f"{code}.{suffix}"
@@ -432,7 +434,8 @@ def get_stock_analysis(
     period: str = "6mo",
     *, research_mode: bool = False,
 ):
-    ticker = yf.Ticker(resolve_yahoo_symbol(stock_code))
+    resolved_symbol = resolve_yahoo_symbol(stock_code)
+    ticker = yf.Ticker(resolved_symbol)
 
     raw_data = ticker.history(
         period=period,
@@ -621,6 +624,8 @@ def get_stock_analysis(
     analysis_result["technical_summary"] = build_technical_summary(analysis_result)
     # Display-only daily-close analysis; never feeds signal or RuleEngine scores.
     _attach_support_resistance(analysis_result, data)
+    from app.institutional_flow.integration import attach_institutional_flow
+    attach_institutional_flow(analysis_result, resolved_symbol)
     if research_mode:
         analysis_result['support_resistance_text'] = format_support_resistance_output(
             analysis_result['support_resistance'], research_mode=True)

@@ -14,3 +14,16 @@ def _configure_tempdir() -> None:
 
 
 _configure_tempdir()
+
+
+# Stock-analysis unit tests must not download institutional data or write to
+# the user's live database. Integration tests inject their isolated service.
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolate_institutional_service(monkeypatch):
+    from app.institutional_flow import integration
+    def unavailable():
+        raise RuntimeError('Use an injected institutional service in tests')
+    monkeypatch.setattr(integration, 'InstitutionalFlowService', unavailable)

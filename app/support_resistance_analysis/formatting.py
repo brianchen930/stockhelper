@@ -28,7 +28,10 @@ def format_support_resistance_output(result, *, research_mode=False, debug=False
     if result.get('error'):
         lines.append('資料提示：支撐／壓力分析暫時無法使用。')
     from app.bayesian_support.presentation import append_probability_output
-    return append_probability_output('\n'.join(lines).rstrip(), result, research_mode=research_mode or debug)
+    text = append_probability_output('\n'.join(lines).rstrip(), result, research_mode=research_mode or debug)
+    from app.institutional_flow.presentation import format_context
+    context = format_context(result.get('institutional_context'), debug=research_mode or debug)
+    return text + ('\n\n' + context if context else '')
 
 
 def format_zone_strength(zone):
