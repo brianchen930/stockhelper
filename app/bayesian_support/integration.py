@@ -94,7 +94,8 @@ def attach_bayesian_support(result, data, *, research_mode=False):
                          distance_to_support_atr=max(zl - close, close - zh, 0) / atr,
                          zone_width_atr=(zh - zl) / atr)
             prediction = model.predict(event).to_dict()
-            predictions.append(dict(support_low=zl, support_high=zh, result=prediction))
+            predictions.append(dict(support_low=zl, support_high=zh, result=prediction,
+                prediction_time=now.isoformat(), model_reference=f'{path.name}:{stat.st_mtime_ns}:{stat.st_size}'))
         sr['bayesian_support'] = predictions
         if predictions:
             reference = None

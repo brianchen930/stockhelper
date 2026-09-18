@@ -21,18 +21,15 @@ def enrich_price_context(analysis, sr, config=None):
     if any(analysis[key]['label'] == '資料不足' for key in ('short_term', 'medium_term')):
         return analysis
 
+    from app.decision_zones import displayed_zones
+    selected = displayed_zones(sr)
     def select(key, max_distance=None):
-        valid = []
-        for z in sr.get(key, []) or []:
-            if not isinstance(z, dict) or not all(is_finite_number(z.get(k)) for k in
-                                                 ('low', 'high', 'distance_pct', 'strength_score')):
-                continue
-            if not 0 < z['low'] <= z['high'] or z['strength_score'] < c.min_strength:
-                continue
-            if max_distance is not None and abs(z['distance_pct']) > max_distance:
-                continue
-            valid.append(z)
-        return min(valid, key=lambda z: abs(z['distance_pct']), default=None)
+        z = selected[key.removesuffix('_zones')]
+        if z is None or z.get('strength_score', 0) < c.min_strength:
+            return None
+        if max_distance is not None and abs(z.get('distance_pct', 0)) > max_distance:
+            return None
+        return z
 
     active = select('active_zones')
     support = select('support_zones', c.max_support_distance_pct)
@@ -47,7 +44,8 @@ def enrich_price_context(analysis, sr, config=None):
         return analysis
 
     # Each paragraph has one purpose. Price scenarios belong only in overall.
-    short['summary'] = _short_text(sd, bool(active))
+    inside_active = bool(active) and (not active.get('interaction') or active['interaction']['location'] == 'inside')
+    short['summary'] = _short_text(sd, inside_active)
     medium['summary'] = _medium_text(sd, md)
     situation = _situation_text(sd, md)
     scenario = _price_scenario(sd, md, active, support, resistance)
@@ -64,9 +62,6 @@ def enrich_price_context(analysis, sr, config=None):
         covered.add('中期結構尚未翻多，短期正向訊號需降低解讀強度')
     result['overall_warnings'] = list(dict.fromkeys(
         warning for warning in result['overall_warnings'] if warning not in covered))
-    operation = result['operation_reference']
-    operation['for_non_holder'], operation['for_holder'] = _operation_text(
-        sd, md, bool(active), bool(support), bool(resistance))
     return result
 
 
@@ -122,6 +117,12 @@ def _situation_text(sd, md):
 
 
 def _price_scenario(sd, md, active, support, resistance):
+    from app.support_resistance_analysis.interaction import LevelInteractionState as I
+    from app.support_resistance_analysis.interaction_formatting import interaction_guidance
+    interactions = [z for z in (active, resistance, support) if z and z.get('interaction')
+                    and z['interaction']['state'] not in (I.ABOVE_SUPPORT, I.BELOW_RESISTANCE)]
+    if interactions:
+        return '\n'.join(interaction_guidance(z) for z in interactions)
     def area(zone):
         return f"{zone['low']:.2f}～{zone['high']:.2f}"
     support_name = '強支撐' if support and support.get('strength_label') in ('strong', 'very_strong') else '支撐'
@@ -150,26 +151,3 @@ def _price_scenario(sd, md, active, support, resistance):
                 '若有效失守，則需留意賣壓延續，以及中期結構轉弱的風險。')
     # A distant/irrelevant upside zone should not distract from weak momentum.
     return ''
-
-
-def _operation_text(sd, md, active, support, resistance):
-    focus = '目前重要價格區' if active else '上述支撐' if support else '短期均線'
-    if sd < 0 and md > 0:
-        non_holder = f'目前中期架構尚可，但短線仍在修正，可等待{focus}確認止跌或短期動能重新轉強後再評估。'
-    elif sd > 0 and md < 0:
-        non_holder = '先觀察反彈能否改善中期結構，避免只因短線轉強就提高對波段反轉的預期。'
-    elif sd > 0 and md > 0:
-        non_holder = '可觀察上方壓力是否獲得有效突破，同時留意乖離與追價風險。' if resistance else '可等待整理後動能續強，再評估趨勢是否延續，避免急於追價。'
-    elif sd < 0 and md < 0:
-        non_holder = '可等待價格止跌與短中期動能改善後再評估，暫不急於搶反彈。'
-    else:
-        non_holder = '可等待關鍵區域與動能形成一致方向後再評估，整理期間先保持觀察。'
-    if active:
-        holder = '目前優先觀察重要價格區是否守穩；若失守，再追蹤下一支撐與中期趨勢是否同步轉弱。' if support else '優先觀察重要價格區是否守穩，並追蹤中期均線與波段結構的變化。'
-    elif sd > 0 and resistance:
-        holder = '留意上方壓力的突破品質；若遇阻回落，再觀察短期均線與量價是否轉弱。'
-    elif support:
-        holder = '先觀察上述支撐能否承接，並追蹤短期動能與中期結構是否同步改善。'
-    else:
-        holder = '持續觀察短期動能與中期均線是否形成一致方向，再評估趨勢變化。'
-    return non_holder, holder

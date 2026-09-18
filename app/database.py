@@ -20,6 +20,10 @@ def create_tables():
     connection = get_connection()
     from app.institutional_flow.storage import create_tables as create_flow_tables
     create_flow_tables(connection)
+    from app.decision_state import create_table
+    create_table(connection)
+    from app.support_resistance_analysis.lifecycle_storage import create_tables as create_lifecycle_tables
+    create_lifecycle_tables(connection)
 
     connection.execute(
         """

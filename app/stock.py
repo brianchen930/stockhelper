@@ -2,7 +2,7 @@ import yfinance as yf
 import pandas as pd
 from functools import lru_cache
 
-from app.analysis_engine import build_technical_summary
+from app.analysis_engine import build_technical_summary, attach_signal_summary
 from app.analysis import analyze_timeframes
 from app.market_data import is_finite_number, normalize_history
 from app.strategies import analyze_ma_strategy
@@ -122,6 +122,9 @@ def _build_insufficient_analysis(
     result.update(summarize_volatility(data))
     result["technical_summary"] = build_technical_summary(result)
     _attach_support_resistance(result, data)
+    from app.decision_context import attach_decision
+    attach_decision(result, data)
+    attach_signal_summary(result, analysis_is_valid=False)
     return result
 
 
@@ -626,11 +629,29 @@ def get_stock_analysis(
     _attach_support_resistance(analysis_result, data)
     from app.institutional_flow.integration import attach_institutional_flow
     attach_institutional_flow(analysis_result, resolved_symbol)
-    if research_mode:
-        analysis_result['support_resistance_text'] = format_support_resistance_output(
-            analysis_result['support_resistance'], research_mode=True)
-    analysis_result["timeframe_analysis"] = analyze_timeframes(data, analysis_result['support_resistance'])
-
+    from app.decision_context import attach_decision
+    previous_zones = {}
+    if len(data) > 2:
+        try:
+            previous_zones = SupportResistanceEngine().detect(data.iloc[:-1])
+            older_zones = SupportResistanceEngine().detect(data.iloc[:-2])
+            older_support = older_zones.get('nearest_support')
+            if older_support and float(data.Close.iloc[-2]) < older_support['low']:
+                previous_zones['nearest_support'] = older_support
+                previous_zones['previous_support_as_of'] = older_zones.get('as_of')
+            older_resistance = older_zones.get('nearest_resistance')
+            if older_resistance and float(data.Close.iloc[-2]) > older_resistance['high']:
+                previous_zones['nearest_resistance'] = older_resistance
+                previous_zones['previous_resistance_as_of'] = older_zones.get('as_of')
+        except Exception:
+            previous_zones = {}
+    from app.support_resistance_analysis.lifecycle_integration import attach_zone_lifecycle
+    attach_zone_lifecycle(analysis_result, data, previous_zones)
+    analysis_result['support_resistance_text'] = format_support_resistance_output(
+        analysis_result['support_resistance'], research_mode=research_mode)
+    analysis_result['timeframe_analysis'] = analyze_timeframes(data, analysis_result['support_resistance'])
+    attach_decision(analysis_result, data, previous_zones=previous_zones)
+    attach_signal_summary(analysis_result)
     return analysis_result
 
 

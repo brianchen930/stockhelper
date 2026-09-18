@@ -65,7 +65,8 @@ def test_zone_active_and_neutral_margin(config):
     assert classify_zone(425, 430, 430.1, config) == 'active'
     result = SupportResistanceEngine(config).detect(bars([100]*10))
     assert result['active_zones']
-    assert '目前測試區' in format_support_resistance_output(result)
+    assert '目前測試區' not in format_support_resistance_output(result)
+    assert '有效支撐／壓力' in format_support_resistance_output(result)
 
 
 def test_consensus_score_and_family_deduplication(config):
@@ -166,7 +167,7 @@ def test_integration_does_not_change_existing_scores(monkeypatch):
         return original_detect(self, data)
     monkeypatch.setattr(stock.SupportResistanceEngine, 'detect', counted_detect)
     with_sr = stock.get_stock_analysis('TEST')
-    assert len(calls) == 1
+    assert len(calls) == 3  # Current zones plus two causal daily snapshots for decisions.
     monkeypatch.setattr(stock.SupportResistanceEngine, 'detect', lambda self, data: {})
     without_sr = stock.get_stock_analysis('TEST')
     for key in with_sr:
@@ -176,7 +177,7 @@ def test_integration_does_not_change_existing_scores(monkeypatch):
                     if field != 'summary':
                         assert with_sr[key][timeframe][field] == without_sr[key][timeframe][field]
             continue
-        if not key.startswith('support_resistance'):
+        if not key.startswith('support_resistance') and key not in ('decision_context', 'trading_decision'):
             assert with_sr[key] == without_sr[key], key
 
 

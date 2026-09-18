@@ -9,6 +9,7 @@ from app.notifier import send_stock_notifications
 from app.database import get_all_stocks, save_data_quality_issue, update_stock_state
 from app.rules import evaluate_notification
 from app.analysis_engine import generate_analysis
+from app.analysis.signal_layers import format_signal_summary
 from app.analysis.timeframe_summary import format_timeframe_discord
 from app.market_data import is_finite_number
 from app.data_quality import assess_analysis_quality
@@ -156,6 +157,10 @@ def run_monitor_job():
         quality_result = assess_analysis_quality(data)
         analysis_is_valid = quality_result["is_valid"]
 
+        if analysis_is_valid and not quality_result['issues'] and data.get('decision_context'):
+            from app.decision_state import update_monitor_decision
+            update_monitor_decision(data)
+
         if DATA_QUALITY_DEBUG_ENABLED:
             timeframe_analysis = data.get("timeframe_analysis") or {}
             short_term_result = (timeframe_analysis.get("short_term") or {})
@@ -206,7 +211,10 @@ def run_monitor_job():
             score=rule_result["technical_score"],
             matched_rules=rule_result.get("technical_matched_rules", []),
             analysis_is_valid=analysis_is_valid,
+            rule_evidence=rule_result.get('evidence', []),
+            timeframe_analysis=data.get('timeframe_analysis'),
         )
+        data['signal_summary'] = analysis_result
         current_macd = data.get("macd")
         current_macd_signal = data.get("macd_signal")
         current_macd_histogram = data.get("macd_histogram")
@@ -255,7 +263,7 @@ def run_monitor_job():
         for line in format_support_resistance_events(sr_events, data.get('support_resistance')):
             print(line)
         print(
-            f"  通知狀態：股票訊號分數 {rule_result['score']}｜"
+            f"  通知狀態：通知權重 {rule_result['score']}｜"
             f"等級 {rule_result['level']}｜是否通知 {rule_result['should_notify']}"
         )
         
@@ -269,10 +277,8 @@ def run_monitor_job():
         else:
             print("  命中規則：無")
 
-        print("  基礎訊號摘要：")
-        print(f"    ・方向：{analysis_result['market_bias']}")
-        print(f"    ・基礎訊號強度：{analysis_result['strength']}")
-        print(f"    ・摘要：{analysis_result['summary']}")
+        for line in format_signal_summary(analysis_result):
+            print(f"  {line}")
         timeframe_analysis = data.get("timeframe_analysis")
         if should_include_timeframe_analysis(analysis_is_valid, timeframe_analysis):
             print("  短中期多週期分析：")
@@ -331,10 +337,7 @@ def run_monitor_job():
                 "【命中規則】",
                 *([f"・{item}" for item in matched_rules] if matched_rules else ["・無"]),
                 "",
-                "【基礎訊號摘要】",
-                f"方向：{analysis_result['market_bias']}",
-                f"基礎訊號強度：{analysis_result['strength']}",
-                f"摘要：{analysis_result['summary']}",
+                *format_signal_summary(analysis_result),
                 "",
                 (
                     f"訊號："
@@ -347,7 +350,7 @@ def run_monitor_job():
                     f" → {current_trend}"
                 ),
                 f"通知等級：{rule_result['level']}",
-                f"規則分數：{rule_result['score']}",
+                f"通知權重：{rule_result['score']}",
                 "",
             ]
             if should_include_timeframe_analysis(analysis_is_valid, timeframe_analysis):

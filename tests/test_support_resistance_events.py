@@ -141,9 +141,9 @@ def test_rule_engine_reads_sr_without_scoring():
 
 def test_formatter_active_empty_and_notification():
     text = format_support_resistance_output({})
-    assert '【支撐 / 壓力】' in text and '目前沒有偵測到' in text
+    assert '【支撐 / 壓力】' in text and '有效支撐／壓力' in text
     text = format_support_resistance_output(context(98, [zone('active')])['support_resistance'])
-    assert '目前測試區' in text and 'Swing Low' in text
+    assert '目前測試區' not in text and '最近支撐' not in text
     event_text = '\n'.join(format_support_resistance_events(evaluate(101, [zone()])['notifications']))
     assert '接近強支撐' in event_text and '95.00～100.00' in event_text
     assert 'NEAR_SUPPORT' not in event_text

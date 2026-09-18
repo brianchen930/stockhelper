@@ -39,7 +39,7 @@ def test_bullish_data_produces_independent_positive_views():
     assert result["medium_term"]["view"] in {"bullish", "slightly_bullish"}
     assert "方向一致偏多" in result["overall_summary"]
     assert result["short_term"]["bullish_factors"]
-    assert "避免追價" in result["operation_reference"]["for_non_holder"]
+    assert "資料不足" in result["operation_reference"]["for_non_holder"]
     assert (result["short_term"]["score_min"], result["short_term"]["score_max"]) == (-8, 8)
     assert (result["medium_term"]["score_min"], result["medium_term"]["score_max"]) == (-9, 9)
     assert not any("量價背離" in warning for warning in result["medium_term"]["warnings"])
@@ -55,8 +55,8 @@ def test_bearish_data_does_not_treat_oversold_as_buy_signal():
     assert any("不代表股價已完成止跌" in warning for warning in short["warnings"])
     assert short["bearish_factors"]
     operation = build_operation_reference(short, medium)
-    assert "不再破低" in operation["for_non_holder"]
-    assert "風險將進一步升高" in operation["for_holder"]
+    assert "資料不足" in operation["for_non_holder"]
+    assert "無法可靠判斷" in operation["for_holder"]
 
 
 def test_insufficient_medium_history_is_safe():
@@ -95,8 +95,8 @@ def test_short_bullish_medium_bearish_is_treated_as_rebound():
     operation = build_operation_reference(short, medium)
 
     assert "技術性反彈" in summary
-    assert "站回月線或季線" in operation["for_non_holder"]
-    assert "修復失敗" in operation["for_holder"]
+    assert "資料不足" in operation["for_non_holder"]
+    assert "無法可靠判斷" in operation["for_holder"]
 
 
 def test_short_bearish_medium_bullish_is_treated_as_pullback():
@@ -105,8 +105,8 @@ def test_short_bearish_medium_bullish_is_treated_as_pullback():
     operation = build_operation_reference(short, medium)
 
     assert "波段上升中的整理" in summary
-    assert "中期架構尚可" in operation["for_non_holder"]
-    assert "支撐未破壞" in operation["for_holder"]
+    assert "資料不足" in operation["for_non_holder"]
+    assert "無法可靠判斷" in operation["for_holder"]
 
 
 def test_bullish_overheated_case_warns_against_chasing():
@@ -114,7 +114,8 @@ def test_bullish_overheated_case_warns_against_chasing():
     medium = _result(4)
     operation = build_operation_reference(short, medium)
 
-    assert "暫緩追價" in operation["for_non_holder"]
+    assert "資料不足" in operation["for_non_holder"]
+    assert short["warnings"]  # Valuable analysis survives even without full decision context.
     forbidden = ("立即買進", "一定會", "必定", "買點")
     assert not any(text in operation["for_non_holder"] for text in forbidden)
 

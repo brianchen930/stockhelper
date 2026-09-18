@@ -27,3 +27,12 @@ def isolate_institutional_service(monkeypatch):
     def unavailable():
         raise RuntimeError('Use an injected institutional service in tests')
     monkeypatch.setattr(integration, 'InstitutionalFlowService', unavailable)
+
+
+@pytest.fixture(autouse=True)
+def isolate_zone_lifecycle_store(monkeypatch, tmp_path):
+    import sqlite3
+    from app.support_resistance_analysis import lifecycle_integration as integration
+    from app.support_resistance_analysis.lifecycle_storage import LifecycleStore
+    monkeypatch.setattr(integration, 'LifecycleStore', lambda: LifecycleStore(
+        lambda: sqlite3.connect(tmp_path / 'lifecycle.db')))

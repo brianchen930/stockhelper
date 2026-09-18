@@ -53,6 +53,8 @@ class RuleEngine:
                 "data_quality_events": events,
                 "system_events": [],
                 "has_data_quality_issue": True,
+                "rule_results": [],
+                "evidence": [],
             }
 
         total_score = 0
@@ -62,11 +64,17 @@ class RuleEngine:
         triggered_rules = []
         event_types = []
         market_events = []
+        rule_results = []
+        evidence = []
 
         should_notify = False
 
         for rule in self.rules:
             result = rule.evaluate(context)
+            result['notification_score'] = result['score']
+            rule_results.append(result)
+            # Neutral observations remain useful even without a notification hit.
+            evidence.extend(result.get('evidence', []))
 
             if not result["matched"]:
                 continue
@@ -146,6 +154,8 @@ class RuleEngine:
             "data_quality_events": [],
             "system_events": [],
             "has_data_quality_issue": False,
+            "rule_results": rule_results,
+            "evidence": evidence,
         }
 
     def _build_event_type(self, event_types: list[str]) -> str:

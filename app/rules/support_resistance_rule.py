@@ -7,7 +7,7 @@ import logging
 from uuid import uuid4
 
 from app.market_data import is_finite_number
-from app.rules.base import BaseRule
+from app.rules.base import BaseRule, RuleCategory
 from app.support_resistance_analysis.formatting import format_zone_strength, select_active_zone
 
 EVENTS = {
@@ -65,6 +65,7 @@ def acknowledge_events(state, events, now):
 
 class SupportResistanceRule(BaseRule):
     name = '支撐／壓力事件規則'
+    rule_category = RuleCategory.EVENT
 
     def __init__(self, config=None):
         self.config = config or SupportResistanceNotificationConfig()

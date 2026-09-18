@@ -1,10 +1,12 @@
 from typing import Any
 
-from app.rules.base import BaseRule
+from app.rules.base import BaseRule, RuleCategory as C, evidence
+from app.market_data import is_finite_number
 
 
 class RSIRule(BaseRule):
     name = "RSI 規則"
+    rule_category = C.RISK
 
     def evaluate(
         self,
@@ -14,6 +16,8 @@ class RSIRule(BaseRule):
         current_signal = context.get("current_signal")
 
         result = {
+            "rule_category": self.rule_category,
+            "evidence": [],
             "rule_name": self.name,
             "matched": False,
             "notify_trigger": False,
@@ -22,10 +26,14 @@ class RSIRule(BaseRule):
             "messages": [],
         }
 
-        if rsi is None:
+        if not is_finite_number(rsi):
             return result
 
         result["matched"] = True
+        result['evidence'].append(evidence(
+            C.RISK if rsi >= 70 or rsi <= 30 else C.CONFIRMATION,
+            'RSI_EXTREME' if rsi >= 70 or rsi <= 30 else 'RSI_NEUTRAL',
+            f'RSI {rsi:.2f}，' + ('超買風險' if rsi >= 70 else '超賣但尚未確認止跌' if rsi <= 30 else '中性，未對目前訊號形成明顯干擾')))
 
         if rsi >= 80:
             if current_signal == "偏多":
@@ -88,7 +96,7 @@ class RSIRule(BaseRule):
                 result["score"] += 1
 
                 result["messages"].append(
-                    f"【RSI｜訊號確認 +1】RSI 為 {rsi:.2f}，位於正常區間，"
+                    f"【RSI｜中性確認】RSI 為 {rsi:.2f}，位於正常區間，"
                     "目前訊號未受到極端 RSI 干擾。"
                 )
             else:

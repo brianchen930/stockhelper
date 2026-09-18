@@ -28,6 +28,7 @@ class SupportResistanceLevel:
     last_touch_date: str | None
     last_seen_date: str | None
     method_count: int
+    interaction: dict | None = None
 
     def to_dict(self):
         result = asdict(self)

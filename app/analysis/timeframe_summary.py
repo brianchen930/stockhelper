@@ -97,64 +97,13 @@ def build_operation_reference(
     short: TimeframeResult,
     medium: TimeframeResult,
 ) -> dict[str, str | list[str]]:
-    """依週期關係與實際風險產生簡短、非指令式的情境參考。"""
-    if short["label"] == "資料不足" or medium["label"] == "資料不足":
-        return {
-            "for_non_holder": "分析資料不足，可等待資料補齊與方向確認後再評估。",
-            "for_holder": "目前無法形成可靠判斷，宜先依既有風險控管並補足歷史資料。",
-            "observation_conditions": [],
-        }
-
-    short_direction = _direction(short["score"])
-    medium_direction = _direction(medium["score"])
-    all_warnings = short["warnings"] + medium["warnings"]
-    overheated = any(
-        term in warning
-        for warning in all_warnings
-        for term in ("追高", "偏熱", "高點", "乖離", "波段位置")
-    )
-
-    if short_direction < 0 and medium_direction < 0:
-        non_holder = "短中期皆偏弱，暫不急著搶反彈。可等待不再破低或重新站回 5 日線再觀察。"
-        holder = "留意近期低點與中期支撐；若放量跌破前低，短中期風險將進一步升高。"
-    elif short_direction > 0 and medium_direction < 0:
-        non_holder = "目前較接近弱勢波段中的短線反彈，可觀察能否站回月線或季線再提高評價。"
-        holder = "短線動能改善但中期尚未翻多，需留意短線修復失敗或無法站穩重要均線的風險。"
-    elif short_direction < 0 and medium_direction > 0:
-        non_holder = "中期架構尚可但短期仍在整理，可等待支撐確認或短線動能重新轉強。"
-        holder = "觀察月線、季線或前波低點是否守穩，支撐未破壞前可持續追蹤整理狀況。"
-    elif short_direction > 0 and medium_direction > 0:
-        non_holder = "短中期趨勢偏多，仍應確認前高、乖離與量價風險，避免追價。"
-        holder = "短中期結構維持偏多，可追蹤均線支撐與量價是否保持健康。"
-    elif short_direction == 0 and medium_direction == 0:
-        non_holder = "目前方向不明，可等待區間突破或更明確的量價訊號。"
-        holder = "留意區間支撐與壓力，在方向確認前以風險控管為主。"
-    elif medium_direction > 0:
-        non_holder = "中期結構偏多但短期尚未確認，可等待短線動能與支撐訊號改善。"
-        holder = "中期架構仍有支撐，可持續追蹤短期整理是否破壞重要均線。"
-    elif medium_direction < 0:
-        non_holder = "中期結構偏弱且短期方向未明，可等待價格止跌與均線改善。"
-        holder = "中期風險仍在，需留意月線、季線與波段低點是否失守。"
-    else:
-        non_holder = "中期方向未明，可等待短期訊號獲得均線與量價確認。"
-        holder = "目前以追蹤支撐與控制波動風險為主，避免只依單一短期訊號判斷。"
-
-    if overheated and short_direction > 0:
-        non_holder = non_holder.rstrip("。") + "，目前有位階或乖離風險，宜暫緩追價。"
-    observation_conditions = _select_observation_conditions(short, medium)
-    existing_text = non_holder + holder
-    extra_conditions = [
-        condition
-        for condition in observation_conditions
-        if not _condition_already_covered(condition, existing_text)
-    ][:2]
-    if extra_conditions:
-        non_holder = non_holder.rstrip("。") + f"；優先觀察{'、'.join(extra_conditions)}。"
-    return {
-        "for_non_holder": non_holder,
-        "for_holder": holder,
-        "observation_conditions": observation_conditions,
-    }
+    """Compatibility adapter; policy belongs exclusively to DecisionEngine."""
+    from app.decision_context import attach_decision
+    result = {'timeframe_analysis': {'short_term': short, 'medium_term': medium}}
+    attach_decision(result)
+    operation = result['timeframe_analysis']['operation_reference']
+    operation['observation_conditions'] = _select_observation_conditions(short, medium)
+    return operation
 
 
 def _select_observation_conditions(
@@ -197,7 +146,7 @@ def _condition_already_covered(condition: str, text: str) -> bool:
     return any(keyword in text for keyword in keyword_groups.get(condition, (condition,)))
 
 
-def format_timeframe_discord(analysis: TimeframeAnalysis) -> list[str]:
+def format_timeframe_discord(analysis: TimeframeAnalysis, *, debug=False) -> list[str]:
     """把結構化結果轉成可直接加入 Discord 訊息的行列表。"""
     lines: list[str] = []
     for title, key in (("短期看法", "short_term"), ("中期看法", "medium_term")):
@@ -222,9 +171,21 @@ def format_timeframe_discord(analysis: TimeframeAnalysis) -> list[str]:
     lines.extend([
         "",
         "【操作參考】",
-        f"空手者：{operation['for_non_holder']}",
-        f"持有者：{operation['for_holder']}",
+        '空手者｜' + operation.get('entry_label', '觀望'),
+        operation['for_non_holder'],
+        '',
+        '持有者｜' + operation.get('holder_label', '謹慎續抱'),
+        operation['for_holder'],
     ])
+    if operation.get('state_change'):
+        lines.append(operation['state_change'])
+    if debug and analysis.get('trading_decision'):
+        from app.decision_engine import TradingDecision
+        from app.decision_formatter import format_operation_reference
+        lines.append(format_operation_reference(TradingDecision(**analysis['trading_decision']), debug=True)['debug'])
+        if analysis.get('decision_context'):
+            import json
+            lines.append('Decision Context: ' + json.dumps(analysis['decision_context'], ensure_ascii=False, allow_nan=False))
     return lines
 
 

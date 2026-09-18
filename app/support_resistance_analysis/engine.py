@@ -9,6 +9,7 @@ from .swing import detect_swings
 from .volume_profile import build_profile
 from .vwap import detect_vwap
 from .clustering import cluster_prices
+from .interaction import classify_interaction
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,7 @@ class SupportResistanceEngine:
         zones.sort(key=lambda z: (abs(z['distance_pct'])/100-c.ranking_strength_weight*z['strength_score']/10,
                                   -z['strength_score'], z['center']))
         for zone in zones:
+            zone['interaction'] = classify_interaction(price, zone['low'], zone['high'], zone['type'])
             zone['zone_width_atr'] = calculate_zone_width_atr(zone['low'], zone['high'], result['atr'])
         for kind, limit in [('support', c.max_support_zones), ('resistance', c.max_resistance_zones), ('active', c.max_active_zones)]:
             result[kind+'_zones'] = [z for z in zones if z['type'] == kind][:limit]

@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.rules.base import BaseRule
+from app.rules.base import BaseRule, RuleCategory as C
 
 VALID_SIGNAL_STATES = {"偏多", "觀望", "偏空"}
 VALID_TREND_STATES = {"多頭排列", "空頭排列", "均線糾結"}
@@ -8,6 +8,7 @@ VALID_TREND_STATES = {"多頭排列", "空頭排列", "均線糾結"}
 
 class SignalChangeRule(BaseRule):
     name = "訊號變化規則"
+    rule_category = C.EVENT
 
     def evaluate(
         self,
@@ -40,6 +41,7 @@ class SignalChangeRule(BaseRule):
             and current_trend in VALID_TREND_STATES
         ):
             return {
+                "rule_category": self.rule_category,
                 "rule_name": self.name,
                 "matched": True,
                 "notify_trigger": True,
@@ -114,6 +116,7 @@ class SignalChangeRule(BaseRule):
             )
 
         return {
+            "rule_category": self.rule_category,
             "rule_name": self.name,
             "matched": triggered,
             "notify_trigger": triggered,

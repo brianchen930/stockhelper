@@ -1,11 +1,13 @@
 from typing import Any
 
-from app.rules.base import BaseRule
+from app.rules.base import BaseRule, RuleCategory as C, evidence
 from app.macd_analysis import analyze_macd
+from app.market_data import is_finite_number
 
 
 class MACDRule(BaseRule):
     name = "MACD 規則"
+    rule_category = C.MOMENTUM
 
     def evaluate(
         self,
@@ -24,6 +26,8 @@ class MACDRule(BaseRule):
         )
 
         result = {
+            "rule_category": self.rule_category,
+            "evidence": [],
             "matched": False,
             "score": 0,
             "messages": [],
@@ -40,7 +44,7 @@ class MACDRule(BaseRule):
         ]
 
         if any(
-            value is None
+            not is_finite_number(value)
             for value in required_values
         ):
             return result
@@ -53,6 +57,7 @@ class MACDRule(BaseRule):
         death_cross = analysis["cross"] == "death_cross"
 
         if golden_cross:
+            result['evidence'].append(evidence(C.MOMENTUM, 'MACD_GOLDEN_CROSS', 'MACD 形成黃金交叉', 2))
             result["matched"] = True
             result["score"] += 2
 
@@ -68,6 +73,7 @@ class MACDRule(BaseRule):
                 )
 
         elif death_cross:
+            result['evidence'].append(evidence(C.MOMENTUM, 'MACD_DEATH_CROSS', 'MACD 形成死亡交叉', -2))
             result["matched"] = True
             result["score"] += 2
 
@@ -83,6 +89,10 @@ class MACDRule(BaseRule):
                 )
 
         if analysis["momentum"] != "data_insufficient":
+            direction = {'bullish_strengthening': 1, 'bullish_weakening': 1,
+                         'bearish_strengthening': -1, 'bearish_weakening': -1}.get(analysis['momentum'], 0)
+            result['evidence'].append(evidence(C.MOMENTUM, 'MACD_HISTOGRAM',
+                'MACD ' + analysis['description'], direction))
             result["matched"] = True
             result["score"] += 1
             category = {

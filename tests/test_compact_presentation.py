@@ -15,15 +15,17 @@ def zone(low, distance):
 
 
 def test_compact_keeps_full_model_and_chooses_nearest_not_first():
-    sr = dict(active_zones=[zone(100, 0.2), zone(99, 0.1)],
+    sr = dict(current_price=100, active_zones=[zone(100, 0.2), zone(99, 0.1)],
               support_zones=[zone(80, -20), zone(95, -5), zone(90, -10)],
               resistance_zones=[zone(120, 20), zone(105, 5), zone(110, 10)])
     before = deepcopy(sr)
     text = format_support_resistance_output(sr)
-    assert text.count('・') == 3
-    assert '目前測試區：99.00～100.00' in text
-    assert '最近支撐：95.00～96.00（-5.00%）' in text
-    assert '最近壓力：105.00～106.00（+5.00%）' in text
+    assert text.count('・') == 2
+    assert '目前測試區' not in text  # Unassigned detector zones have no confirmed trading role.
+    assert '最近支撐：95.00～96.00' in text
+    assert '距支撐區約 -4.00%' in text  # Nearest boundary, not center/legacy distance.
+    assert '最近壓力：105.00～106.00' in text
+    assert '距壓力區約 +5.00%' in text
     for hidden in ('第二', '第三', '中心', '測試：7', '2026-', '8.00/10'):
         assert hidden not in text
     assert sr == before

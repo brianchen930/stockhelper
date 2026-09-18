@@ -152,7 +152,12 @@ def test_stock_integration_no_extra_download_or_rule_changes(monkeypatch):
     monkeypatch.setattr(stock, 'summarize_volatility', lambda data: {})
     legacy = stock.get_stock_analysis('TEST')
     for key, value in legacy.items():
-        if key == 'technical_summary':
+        if key in ('decision_context', 'trading_decision'):
+            continue  # Volatility intentionally participates in trading decisions.
+        if key == 'timeframe_analysis':
+            for field in ('short_term', 'medium_term', 'overall_summary', 'overall_warnings'):
+                assert result[key][field] == value[field]
+        elif key == 'technical_summary':
             assert result[key].startswith(value + ' / ATR14：')
         else:
             assert result[key] == value

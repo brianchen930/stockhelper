@@ -48,13 +48,22 @@ def append_probability_output(base_text, sr, *, research_mode=False):
     candidate = sr.get('bayesian_support_selected')
     if not candidate:
         return base_text + ('\n支撐成功機率：資料不足' if sr.get('bayesian_support_status') == 'unavailable' else '')
+    lifecycle = candidate.get('zone_lifecycle')
+    if lifecycle and not lifecycle.get('active_support'):
+        if not research_mode:
+            return base_text
+        return base_text + '\n\n[HISTORICAL BAYESIAN]\n' + json.dumps(dict(
+            original_support_low=candidate['support_low'], original_support_high=candidate['support_high'],
+            zone_lifecycle=lifecycle, prediction_time=candidate.get('prediction_time'),
+            original_prediction=candidate.get('result'), original_rating=candidate.get('display')),
+            ensure_ascii=False, indent=2, allow_nan=False)
     if research_mode:
         return base_text + '\n\n' + format_probability_block(candidate, research_mode=True)
     model_zone = dict(low=candidate['support_low'], high=candidate['support_high'])
     # Match only actually displayed active/support zones, never resistance.
-    from app.support_resistance_analysis.formatting import select_active_zone
-    active = select_active_zone(sr)
-    support = min(sr.get('support_zones', []), key=lambda z: abs(z.get('distance_pct', 0)), default=None)
+    from app.decision_zones import displayed_zones
+    selected = displayed_zones(sr)
+    active, support = selected['active'], selected['support']
     matches = [(title, zone) for title, zone in [('目前測試區', active), ('最近支撐', support)]
                if zone and zone_overlap_ratio(model_zone, zone) >= settings.ZONE_OVERLAP_THRESHOLD]
     if matches:
@@ -64,7 +73,8 @@ def append_probability_output(base_text, sr, *, research_mode=False):
             if line.startswith('・' + title + '：'):
                 # Union is presentation-only. Drop the old distance % because it
                 # was computed for the original zone, which remains untouched.
-                lines[index] = f"・{title}：{min(zone['low'], model_zone['low']):.2f}～{max(zone['high'], model_zone['high']):.2f}"
+                if 'zone_lifecycle' not in sr:
+                    lines[index] = f"・{title}：{min(zone['low'], model_zone['low']):.2f}～{max(zone['high'], model_zone['high']):.2f}"
                 lines.insert(index + 2, format_probability_block(candidate, include_zone=False))
                 return '\n'.join(lines)
     return base_text + '\n\n' + format_probability_block(candidate)

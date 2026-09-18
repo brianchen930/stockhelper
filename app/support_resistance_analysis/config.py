@@ -3,6 +3,16 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class ZoneDisplayConfig:
+    # Calendar-day display lifetime, independent of confirmation/role policy.
+    recent_transition_days: int = 3
+
+    def __post_init__(self):
+        if isinstance(self.recent_transition_days, bool) or not isinstance(self.recent_transition_days, int) or self.recent_transition_days < 0:
+            raise ValueError('recent_transition_days must be a nonnegative integer')
+
+
+@dataclass(frozen=True)
 class SupportResistanceConfig:
     lookback: int = 120
     swing_window: int = 3
@@ -74,3 +84,23 @@ class SupportResistanceConfig:
         for weights in (self.method_weights, self.score_weights):
             if not weights or any(not math.isfinite(v) or v < 0 for v in weights.values()) or sum(weights.values()) <= 0:
                 raise ValueError('weights must be finite, nonnegative, with positive total')
+
+
+@dataclass(frozen=True)
+class ZoneLifecycleConfig:
+    overlap_min: float = .8
+    center_distance_atr: float = .15
+    width_difference_atr: float = .2
+    center_distance_width: float = .15
+    width_difference_ratio: float = .25
+    confirmed_break_atr: float = .75
+    persistent_break_atr: float = .35
+    volume_confirmation_ratio: float = 1.5
+    rejection_atr: float = .1
+
+    def __post_init__(self):
+        import math
+        if any(not math.isfinite(v) or v <= 0 for v in vars(self).values()):
+            raise ValueError('Lifecycle thresholds must be positive and finite')
+        if self.overlap_min > 1 or self.persistent_break_atr > self.confirmed_break_atr:
+            raise ValueError('Invalid lifecycle overlap/break thresholds')
