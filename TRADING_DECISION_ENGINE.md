@@ -1,5 +1,100 @@
 # Trading Decision Engine
 
+## 持倉感知交易動作（2026-09-21）
+
+本節取代舊版一般輸出的雙角色「操作參考」；原 Action State、進場路徑、
+觸發證據和轉換分析仍供風險評估與 debug 使用，不新增平行引擎。
+`DecisionEngine.evaluate_trade()` 在原風險評估後產生目前交易動作，
+`stabilize()` 再套用日線確認並重新計算最終動作。formatter 不作市場判斷。
+
+### 規則
+
+- WATCHING 僅 WAIT / ENTER；HOLDING 僅 EXIT / REDUCE / ADD / HOLD，依此順序判斷。
+- ENTER 要求有效已收盤資料、有效 ATR、中期非空、非月季線皆下方、
+  靠近有效支撐（最多 1 ATR）、支撐原始評等高／極高、MACD 改善且站上 MA5、
+  最近有效壓力下緣空間超過 2%、量能可用且未放量下跌，以及無重要既有風險限制。
+- ADD 額外要求中期偏多、短期非空、站上 MA20、KD 偏多、壓力空間超過 3%。
+  高可信度支撐仍須匹配目前支撐價格區，UNKNOWN／模型尚未 ready 不視為高。
+- 極高波動或 ATR% >= 8 時，額外要求極高支撐評等、MACD 多方增強、
+  KD 偏多及站上 MA20；單獨 EXTREME_VOLATILITY 不否決六種交易動作中的 ENTER。
+  其他既有 Risk Gate 仍有效，TIGHTEN_RISK 以上禁止新增曝險。
+  原進場路徑的極高波動 Gate 保留作內部舊狀態，不直接映射新動作。
+- EXIT 要求已確認支撐失守 + 中期空頭 + MACD 空方加速或放量下跌。
+  前支撐失守與目前支撐失守分開解釋。單次 RSI/KD/MACD 交叉不直接退出。
+- REDUCE 要求至少兩項風險證據（支撐破壞、趨勢、動能、量價、法人），
+  或既有有證據的風險狀態仍等待改善確認；只憑 risk state 名稱不直接下動作。
+- HOLD 是持有的預設。資料不足時 HOLD / WAIT 附明確警告，不能解讀成風險解除。
+
+`average_cost`、日線基準 `unrealized_return` 留在 context／trade_evidence，
+虧損只增加提醒，不參與方向投票，也不能阻止 EXIT。
+畫面既有即時價損益仍可與日線決策損益不同；兩者不混用。
+`volume_deteriorating` 使用原日線量比（前 19 日均量）與當日收盤下跌判定。
+以上門檻為集中在 DecisionConfig 的保守初始值，尚未以績效回測校準。
+
+### 防抖與保存
+
+進場路徑與新交易動作共用 `entry_paths.confirmation_count()`，不增加計時排程。
+ENTER / ADD 須連續兩根新收盤日線符合完整條件；同日重跑不增加，
+支撐身分改變或 WATCHING/HOLDING 切換會重設候選確認。
+風險惡化立即處理；REDUCE 後恢復 HOLD / ADD 需兩根新日線確認改善，
+EXIT 條件解除但改善尚待確認時降為 REDUCE，不宣稱當前仍符合 EXIT。
+確認記憶加入原 `decision_state.trade_memory`，重啟可恢復。
+既有 market fingerprint 排除持倉與成本損益，避免修改成本製造市場轉換事件。
+
+`trading_decision` 新增 decision、position_status、reasons、warnings、follow_up、
+trade_evidence、trade_confirmation_count，保留原風險與路徑欄位相容性。
+監測於同一 SQLite transaction 寫入 `trading_decision_history`：
+date、symbol、position_status、decision、decision_reasons、warnings、
+context_json、decision_json、fingerprint、created_at。
+decision_json 包含完整 context／decision／config；重跑去重，同日不同輸入保留獨立快照。
+只保存有效已收盤觀察，舊日期不覆蓋新狀態，也不加入目前決策歷史。
+新增欄位／表採可重複 migration，不需清空既有資料。
+
+沿用原唯讀 API 行為：獨立 analysis 查詢不讀取或推進監測確認記憶，
+因此符合進場候選仍先呈現 WAIT／HOLD 與確認提示；排程監測才累積並保存最終結果。
+本輪不增加 Discord 發送觸發條件；符合原通知條件時訊息包含新交易建議。
+
+### 一般輸出範例
+
+```text
+【交易建議】
+目前動作：可考慮加碼
+原因：
+・目前回測有效支撐區
+・支撐成功率評等：高
+・中期結構與均線允許承接
+・MACD 動能改善
+・距離上方壓力仍有合理空間
+風險提醒：
+・目前已有持倉，新增部位會提高曝險
+後續觀察條件：
+・後續觀察 98～100 支撐；守穩或失守後須合併趨勢與動能重新評估
+```
+
+一般顯示最多五項原因、合计最多三項提醒與後續條件，不重複技術指標數值。
+舊雙角色說明及市場狀態轉換細節保留在結構化 payload／debug。
+
+### 回測限制與測試
+
+這是建議紀錄，不是成交紀錄；沒有自動修改持倉，也沒有下單。
+未來回測需明確指定下一根成交價、交易成本、滑價、持倉與加減碼規模，
+並使用當時可用的法人、Bayesian 模型與價格區資料，避免前視偏誤。
+現有資料庫沒有完整逐日模型版本與原始行情歷史；本輪保存決策快照可供
+前向稽核與 context 重播，不等於已完成歷史策略績效回測。
+支撐五級評等亦不是經校準的絕對獲利機率。
+
+新增 `tests/test_trade_actions.py` 覆蓋八案例、否決條件、成本不干預方向、
+極高波動例外、ADD 更嚴格、單一指標不退出、同日去重、重啟、角色／價格區切換、
+風險改善防抖、未收盤與過期資料、SQLite 回滾及 formatter。
+`test_position_status.py` 改為確認原市場風險不變、交易動作依持倉分流，
+並驗證 API、終端與模擬 Discord 的完整接入。
+
+驗證：`.venv\Scripts\python.exe -B -m pytest tests -q -p no:cacheprovider
+--basetemp=.pytest_tmp/trade_full`，**670 passed**（19.69 秒）；新增 36 項交易測試。
+補強終端／Discord 斷言後另跑該整合案例，**1 passed**。
+僅有既有 Starlette/httpx 棄用提醒；`git diff --check` 通過。
+測試使用隔離 SQLite 與模擬行情／通知，未向外傳送訊息或對正式股票資料庫執行 migration。
+
 ## 支撐一致性與 Transition Triggers 修正
 
 本節更新並取代下方第一版中「最多四個原因」的正常建議格式，以及以歷史支撐替換目前支撐的作法。

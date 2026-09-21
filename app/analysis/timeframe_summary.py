@@ -168,6 +168,17 @@ def format_timeframe_discord(analysis: TimeframeAnalysis, *, debug=False) -> lis
     if analysis["overall_warnings"]:
         _append_section(lines, "綜合注意", analysis["overall_warnings"], 3)
     operation = analysis["operation_reference"]
+    trade = analysis.get('trading_decision')
+    if trade and 'decision' in trade:
+        from app.decision_formatter import format_trade_recommendation
+        lines.extend(['', *format_trade_recommendation(trade)])
+        if debug:
+            from app.decision_engine import TradingDecision
+            from app.decision_formatter import format_operation_reference
+            import json
+            lines.append(format_operation_reference(TradingDecision(**trade), debug=True)['debug'])
+            lines.append('Decision Context: ' + json.dumps(analysis.get('decision_context'), ensure_ascii=False, allow_nan=False))
+        return lines
     lines.extend([
         "",
         "【操作參考】",

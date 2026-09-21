@@ -1,6 +1,7 @@
 import sqlite3
 import json
 from pathlib import Path
+from app.position_status import PositionStatus, POSITION_FIELDS, position_metadata, validate_position_fields
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,6 +44,17 @@ def create_tables():
         ).fetchall()
     }
 
+    if "position_status" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE watchlist ADD COLUMN position_status TEXT NOT NULL "
+            f"DEFAULT '{PositionStatus.WATCHING.value}' "
+            f"CHECK (position_status IN ('{PositionStatus.WATCHING.value}', '{PositionStatus.HOLDING.value}'))"
+        )
+
+    for name, sql_type in (('average_cost', 'REAL'), ('shares', 'INTEGER'), ('entry_date', 'TEXT')):
+        if name not in existing_columns:
+            connection.execute(f'ALTER TABLE watchlist ADD COLUMN {name} {sql_type}')
+
     if "last_signal" not in existing_columns:
         connection.execute(
             "ALTER TABLE watchlist ADD COLUMN last_signal TEXT"
@@ -79,16 +91,21 @@ def create_tables():
     connection.commit()
     connection.close()
 
-def add_stock(stock_code: str, stock_name: str | None = None):
+def add_stock(stock_code: str, stock_name: str | None = None,
+              position_status: PositionStatus | str = PositionStatus.WATCHING,
+              *, average_cost=None, shares=None, entry_date=None):
+    position_status = PositionStatus(position_status).value
+    metadata = position_metadata(validate_position_fields(dict(
+        position_status=position_status, average_cost=average_cost, shares=shares, entry_date=entry_date)))
     connection = get_connection()
 
     try:
         cursor = connection.execute(
             """
-            INSERT INTO watchlist (stock_code, stock_name)
-            VALUES (?, ?)
+            INSERT INTO watchlist (stock_code, stock_name, position_status, average_cost, shares, entry_date)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (stock_code, stock_name)
+            (stock_code, stock_name, position_status, *(metadata[key] for key in POSITION_FIELDS))
         )
 
         connection.commit()
@@ -96,7 +113,8 @@ def add_stock(stock_code: str, stock_name: str | None = None):
         return {
             "id": cursor.lastrowid,
             "stock_code": stock_code,
-            "stock_name": stock_name
+            "stock_name": stock_name,
+            **metadata,
         }
 
     except sqlite3.IntegrityError:
@@ -115,6 +133,10 @@ def get_all_stocks():
             id,
             stock_code,
             stock_name,
+            position_status,
+            average_cost,
+            shares,
+            entry_date,
             last_signal,
             last_trend,
             last_notify_at,
@@ -130,9 +152,47 @@ def get_all_stocks():
 
     connection.close()
 
-    return [dict(row) for row in rows]
+    return [dict(row, **position_metadata(dict(row))) for row in rows]
 
-    return deleted
+
+def get_stock(stock_code: str):
+    connection = get_connection()
+    try:
+        row = connection.execute(
+            "SELECT * FROM watchlist WHERE stock_code = ?", (stock_code,)
+        ).fetchone()
+        return dict(row, **position_metadata(dict(row))) if row else None
+    finally:
+        connection.close()
+
+
+def update_position_status(stock_code: str, position_status: PositionStatus | str):
+    return update_position(stock_code, position_status=position_status)
+
+
+def update_position(stock_code: str, **changes):
+    if not changes or set(changes) - {'position_status', *POSITION_FIELDS}:
+        raise ValueError('請提供有效的持倉更新欄位')
+    validate_position_fields(changes)
+    if 'position_status' in changes:
+        changes['position_status'] = PositionStatus(changes['position_status']).value
+    connection = get_connection()
+    try:
+        # Merge and clear atomically; omitted PATCH fields retain their values.
+        connection.execute('BEGIN IMMEDIATE')
+        row = connection.execute(
+            'SELECT * FROM watchlist WHERE stock_code = ?', (stock_code,)).fetchone()
+        if row is None:
+            return None
+        metadata = position_metadata(dict(row) | changes)
+        connection.execute(
+            'UPDATE watchlist SET position_status = ?, average_cost = ?, shares = ?, entry_date = ? WHERE stock_code = ?',
+            (metadata['position_status'], *(metadata[key] for key in POSITION_FIELDS), stock_code))
+        connection.commit()
+        return dict(row) | metadata
+    finally:
+        connection.close()
+
 
 def update_stock_state(
     stock_code: str,

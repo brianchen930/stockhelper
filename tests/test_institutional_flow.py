@@ -16,8 +16,10 @@ from app.institutional_flow.service import InstitutionalFlowService
 def rows(foreign, trust=None, start='2026-09-07'):
     trust = trust if trust is not None else [0] * len(foreign)
     raw, prices = [], []
+    import pandas as pd
+    days = pd.bdate_range(start, periods=len(foreign))
     for i, (f, t) in enumerate(zip(foreign, trust)):
-        day = (datetime.fromisoformat(start) + timedelta(days=i)).date().isoformat()
+        day = days[i].date().isoformat()
         for name, net in [('Foreign_Investor', f), ('Foreign_Dealer_Self', 0),
                           ('Investment_Trust', t), ('Dealer_self', 100), ('Dealer_Hedging', -50)]:
             raw.append(dict(stock_id='3211', date=day, name=name, buy=max(net, 0), sell=max(-net, 0)))
@@ -65,9 +67,9 @@ def test_trends(values, expected):
 
 
 def test_bull_bear_mixed_and_no_mutation():
-    bullish = build_context(rows([15000]*5, [10000]*5), '2026-09-15T11:00:00')
-    bearish = build_context(rows([-20000]*5), '2026-09-15T11:00:00')
-    mixed = build_context(rows([15000]*5, [-15000]*5), '2026-09-15T11:00:00')
+    bullish = build_context(rows([15000]*5, [10000]*5), '2026-09-14T11:00:00')
+    bearish = build_context(rows([-20000]*5), '2026-09-14T11:00:00')
+    mixed = build_context(rows([15000]*5, [-15000]*5), '2026-09-14T11:00:00')
     assert bullish['institutional_level'] == 'STRONG_SUPPORT'
     assert mixed['institutional_level'] == 'MIXED' and mixed['confidence'] < 1
     assert adjust_probability(.78, bullish) > .78
@@ -83,7 +85,7 @@ def test_bull_bear_mixed_and_no_mutation():
 
 def test_windows_streak_and_weighted_ratio():
     data = rows([10000]*10)
-    context = build_context(data, '2026-09-18T11:00:00')
+    context = build_context(data, '2026-09-21T11:00:00')
     f = context['features']
     assert f['foreign_net_10d'] == 100000
     assert f['foreign_net_ratio_5d'] == .1
@@ -142,7 +144,7 @@ def test_integration_display_and_full_payload(store):
     store.upsert(rows([-20000]*5), '2026-09-12T08:00:00+08:00')
     service = InstitutionalFlowService(store, object())
     result = dict(support_resistance=sr)
-    attach_institutional_flow(result, '3211.TWO', service=service, as_of='2026-09-15T11:00:00', replay=True)
+    attach_institutional_flow(result, '3211.TWO', service=service, as_of='2026-09-14T11:00:00', replay=True)
     text = result['support_resistance_text']
     assert '法人籌碼：偏空' in text
     assert text.count('支撐成功機率：') == 1
@@ -154,15 +156,15 @@ def test_integration_display_and_full_payload(store):
 
 
 def test_service_success_daily_reuse_and_cache_fallback(store):
-    now = datetime.now(TAIPEI)
-    yesterday = (now - timedelta(days=1)).date().isoformat()
+    now = datetime(2026, 9, 21, 11, tzinfo=TAIPEI)
+    yesterday = '2026-09-18'
     class Provider:
         calls = 0
         def fetch(self, *args):
             self.calls += 1
             return rows([20000], start=yesterday)
     provider = Provider()
-    service = InstitutionalFlowService(store, provider)
+    service = InstitutionalFlowService(store, provider, clock=lambda: now)
     assert service.context('3211.TWO')['institutional_level'] != 'UNKNOWN'
     assert service.context('3211.TWO')['latest_available_institutional_date'] == yesterday
     assert provider.calls == 1
@@ -172,7 +174,7 @@ def test_replay_api_keeps_labels_and_no_future_versions(store):
     import pandas as pd
     from app.institutional_flow.backtest import attach_institutional_backtest
     store.upsert(rows([-20000]*5), '2026-09-16T08:00:00+08:00')
-    predictions = pd.DataFrame([dict(symbol='3211', event_date='2026-09-15T11:00:00+08:00',
+    predictions = pd.DataFrame([dict(symbol='3211', event_date='2026-09-14T11:00:00+08:00',
         predicted_probability=.78, actual_label='success', label_available_date='2026-09-20')])
     strict = attach_institutional_backtest(predictions, store)
     assert strict.iloc[0].institutional_level == 'UNKNOWN'
@@ -186,7 +188,7 @@ def test_replay_api_keeps_labels_and_no_future_versions(store):
 def test_missing_session_breaks_streak():
     data = rows([10000]*5)
     data.pop(2)
-    features = build_context(data, '2026-09-15')['features']
+    features = build_context(data, '2026-09-14')['features']
     assert features['foreign_streak'] == 2
     assert features['foreign_net_3d'] is None
 
@@ -212,12 +214,11 @@ def test_provider_request_contract(monkeypatch):
 
 
 def test_failure_uses_valid_cache(store):
-    now = datetime.now(TAIPEI)
-    previous = now - timedelta(days=1)
-    store.upsert(rows([20000], start=(now-timedelta(days=2)).date().isoformat()), previous.isoformat())
+    now = datetime(2026, 9, 21, 14, tzinfo=TAIPEI)
+    store.upsert(rows([20000], start='2026-09-18'), '2026-09-19T08:00:00+08:00')
     class Broken:
         def fetch(self, *args): raise RuntimeError('offline')
-    context = InstitutionalFlowService(store, Broken()).context('3211.TWO')
+    context = InstitutionalFlowService(store, Broken(), clock=lambda: now).context('3211.TWO')
     assert context['institutional_level'] != 'UNKNOWN'
 
 

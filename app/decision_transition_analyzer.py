@@ -10,6 +10,7 @@ import hashlib
 import json
 
 from app.decision_engine import DecisionConfig
+from app.position_status import POSITION_FIELDS
 
 SNAPSHOT_VERSION = 1
 
@@ -68,6 +69,10 @@ def compact_context(context):
 
 def context_fingerprint(context):
     # Input only: output scores/counts never create a new observation identity.
+    # User position metadata must not turn the same market bar into a new event.
+    market_context = compact_context(context)
+    for key in ('position_status', 'unrealized_return', *POSITION_FIELDS):
+        market_context.pop(key, None)
     def normalize(value):
         if isinstance(value, dict):
             return {k: normalize(v) for k, v in value.items()}
@@ -77,7 +82,7 @@ def context_fingerprint(context):
             return int(value)
         return value
     return hashlib.sha256(canonical({'version': SNAPSHOT_VERSION,
-                                    'context': normalize(compact_context(context))}).encode('utf-8')).hexdigest()
+                                    'context': normalize(market_context)}).encode('utf-8')).hexdigest()
 
 
 def context_summary(context, decision, state, config=None):

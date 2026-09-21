@@ -5,6 +5,23 @@ ENTRY_LABELS = dict(zip(A, ('暫不介入', '觀望', '等待確認', '可小幅
 HOLDER_LABELS = dict(zip(H, ('續抱', '謹慎續抱', '提高風險警戒', '降低曝險', '退出條件接近')))
 
 
+def format_trade_recommendation(decision):
+    """Display only; the engine owns the action, reasons and future conditions."""
+    labels = {'WAIT': '等待', 'ENTER': '可考慮建立初始部位', 'HOLD': '續抱',
+              'ADD': '可考慮加碼', 'REDUCE': '考慮減碼', 'EXIT': '考慮退出'}
+    lines = ['【交易建議】', '目前動作：' + labels[decision['decision']], '原因：']
+    lines.extend('・' + reason for reason in decision['reasons'][:5])
+    warnings = decision.get('warnings', [])[:2]
+    if warnings:
+        lines.append('風險提醒：')
+        lines.extend('・' + item for item in warnings)
+    follow_up = decision.get('follow_up', [])[:3 - len(warnings)]
+    if follow_up:
+        lines.append('後續觀察條件：')
+        lines.extend('・' + item for item in follow_up)
+    return lines
+
+
 def format_entry_paths(paths):
     """Render evaluator results only; no indicator, risk or price evaluation."""
     from app.decision_transitions import zone_text

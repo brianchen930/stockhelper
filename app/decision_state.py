@@ -20,7 +20,8 @@ def stabilize(decision, context, previous, config=None):
         if d.entry_paths:
             from app.entry_paths import suspend_paths
             d.entry_paths = suspend_paths(d.entry_paths)
-        return attach_triggers(d, context, config), dict(old)
+        from app.decision_engine import DecisionEngine
+        return DecisionEngine(config).evaluate_trade(attach_triggers(d, context, config), context), dict(old)
     d.previous_action_state = {k: old[k] for k in ('entry_state', 'holder_state') if old.get(k)}
     candidate = str(d.entry_action)
     if d.entry_paths:
@@ -67,7 +68,45 @@ def stabilize(decision, context, previous, config=None):
     if path_memory is not None:
         state['entry_path_memory'] = path_memory
     d = reconcile(d, decision, context, old, state, config)
-    return attach_triggers(d, context, config), state
+    d = stabilize_trade(attach_triggers(d, context, config), context, old, state, config)
+    return d, state
+
+
+def stabilize_trade(d, context, previous, state, config=None):
+    import json
+    from app.decision_engine import DecisionEngine
+    from app.entry_paths import confirmation_count
+    config = config or DecisionConfig()
+    d = DecisionEngine(config).evaluate_trade(d, context)
+    try:
+        old = json.loads(previous.get('trade_memory') or '{}')
+    except (ValueError, TypeError):
+        old = {}
+    zone = context.active_support_zone or {}
+    identity = [d.position_status, zone.get('stable_zone_id') or zone.get('zone_id') or [zone.get('low'), zone.get('high')]]
+    count, stamp = confirmation_count(d.decision in ('ENTER', 'ADD'), identity, context, old,
+        old.get('last_observation_time') or previous.get('last_observation_time'), config)
+    d.trade_confirmation_count = count
+    recovering = (d.position_status == 'HOLDING' and old.get('decision') in ('REDUCE', 'EXIT')
+                  and (d.decision in ('HOLD', 'ADD') or (
+                      d.state_basis == 'RETAINED_PENDING_CONFIRMATION' and len(d.trade_evidence['risk_evidence']) < 2))
+                  and d.trade_evidence['checks']['valid'])
+    recovery_old = old.get('recovery', {})
+    recovery_count, recovery_stamp = confirmation_count(recovering, ['HOLDING', 'risk_recovery'], context,
+        recovery_old, recovery_old.get('last_observation_time') or old.get('last_observation_time'), config)
+    if recovering and recovery_count < config.confirmation_required:
+        d.decision = 'REDUCE'
+        d.reasons = ['原減碼風險已緩解，尚待連續新收盤日線確認',
+                     '暫時維持降低曝險建議', '目前未達完整退出條件']
+        d.follow_up = [f'後續須連續 {config.confirmation_required} 根新收盤日線確認風險改善']
+    if d.decision in ('ENTER', 'ADD') and count < config.confirmation_required:
+        d.decision = 'HOLD' if d.position_status == 'HOLDING' else 'WAIT'
+        d.reasons = ['交易候選條件已具備，但連續新收盤日線確認尚未完成'] + d.reasons[:4]
+        d.follow_up = [f'後續須連續 {config.confirmation_required} 根有效收盤日線維持條件；目前 {count} 根']
+    state['trade_memory'] = json.dumps(dict(identity=identity, count=count, last_observation_time=stamp,
+        decision=d.decision, recovery=dict(identity=['HOLDING', 'risk_recovery'], count=recovery_count,
+                                           last_observation_time=recovery_stamp)), ensure_ascii=False)
+    return d
 
 
 def create_table(connection):
@@ -78,7 +117,7 @@ def create_table(connection):
         holder_confirmation_count INTEGER NOT NULL DEFAULT 0,
         last_observation_time TEXT)''')
     columns = {row[1] for row in connection.execute('PRAGMA table_info(decision_state)')}
-    for name in ('previous_context_summary', 'context_fingerprint', 'holder_evidence_summary', 'entry_path_memory'):
+    for name in ('previous_context_summary', 'context_fingerprint', 'holder_evidence_summary', 'entry_path_memory', 'trade_memory'):
         if name not in columns:
             connection.execute(f'ALTER TABLE decision_state ADD COLUMN {name} TEXT')
     connection.execute('''CREATE TABLE IF NOT EXISTS decision_transition_events (
@@ -89,6 +128,13 @@ def create_table(connection):
         timestamp TEXT NOT NULL, event_json TEXT NOT NULL,
         UNIQUE(symbol, role, previous_state, current_state, data_timestamp, observation_fingerprint)
     )''')
+    connection.execute('''CREATE TABLE IF NOT EXISTS trading_decision_history (
+        id INTEGER PRIMARY KEY, date TEXT NOT NULL, symbol TEXT NOT NULL,
+        position_status TEXT NOT NULL, decision TEXT NOT NULL,
+        decision_reasons TEXT NOT NULL, warnings TEXT NOT NULL,
+        context_json TEXT NOT NULL, decision_json TEXT NOT NULL,
+        fingerprint TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(symbol, date, position_status, fingerprint))''')
 
 
 def update_monitor_decision(data, connection=None):
@@ -166,6 +212,24 @@ def update_monitor_decision(data, connection=None):
         # Reattach future conditions if replay/stale handling restored final actions.
         from app.decision_transitions import attach_triggers
         decision = attach_triggers(decision, context)
+        if stale:
+            from app.decision_engine import DecisionEngine
+            decision = DecisionEngine().evaluate_trade(decision, context)
+        else:
+            decision = stabilize_trade(decision, context, previous, state)
+            if context.observation_complete and context.observation_time:
+                import hashlib
+                payload = canonical(dict(context=asdict(context), decision=asdict(decision), config=asdict(DecisionConfig())))
+                # Stable snapshot identity excludes transition diagnostics and replay labels.
+                identity = canonical(dict(context=asdict(context), decision=decision.decision,
+                    reasons=decision.reasons, warnings=decision.warnings, evidence=decision.trade_evidence,
+                    confirmation_count=decision.trade_confirmation_count, config=asdict(DecisionConfig()), version=1))
+                digest = hashlib.sha256(identity.encode()).hexdigest()
+                connection.execute('''INSERT INTO trading_decision_history
+                    (date,symbol,position_status,decision,decision_reasons,warnings,context_json,decision_json,fingerprint)
+                    VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING''',
+                    (context.observation_time, context.symbol, decision.position_status, decision.decision,
+                     canonical(decision.reasons), canonical(decision.warnings), canonical(asdict(context)), payload, digest))
         columns = list(state)
         updates = ','.join(f'{key}=excluded.{key}' for key in columns if key != 'symbol')
         connection.execute('INSERT INTO decision_state (' + ','.join(columns) + ') VALUES (' + ','.join('?' for _ in columns) + ') ON CONFLICT(symbol) DO UPDATE SET ' + updates, tuple(state.values()))

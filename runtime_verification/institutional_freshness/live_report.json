@@ -1,0 +1,125 @@
+{
+  "verified_at": "2026-09-21T20:44:08.241282+08:00",
+  "results": [
+    {
+      "symbol": "2408.TW",
+      "context": {
+        "institutional_score": 0.0,
+        "institutional_level": "NEUTRAL",
+        "signal": "NEUTRAL",
+        "data_date": "2026-09-21",
+        "actual_data_date": "2026-09-21",
+        "expected_trade_date": "2026-09-21",
+        "target_date": "2026-09-21",
+        "freshness": "FRESH",
+        "previous_session_context": false,
+        "calendar_policy": "weekdays_with_configured_closures",
+        "latest_available_institutional_date": "2026-09-21",
+        "source": "TWSE",
+        "market": "TWSE",
+        "foreign_net": -4122631.0,
+        "investment_trust_net": -38146.0,
+        "dealer_net": -145219.0,
+        "confidence": 1.0,
+        "features": {
+          "foreign_net_1d": -4122631.0,
+          "foreign_net_ratio_1d": -0.11949864628060869,
+          "foreign_net_3d": 28418957.0,
+          "foreign_net_ratio_3d": 0.17872653437927286,
+          "foreign_net_5d": 28358558.0,
+          "foreign_net_ratio_5d": 0.12346737995314949,
+          "foreign_net_10d": 34002007.0,
+          "foreign_streak": -1,
+          "foreign_flow_trend": "NEUTRAL",
+          "trust_net_1d": -38146.0,
+          "trust_net_ratio_1d": -0.0011057005492415156,
+          "trust_net_3d": 4493428.0,
+          "trust_net_ratio_3d": 0.02825912344083519,
+          "trust_net_5d": 3791428.0,
+          "trust_net_ratio_5d": 0.016507104537579437,
+          "trust_net_10d": -283719.0,
+          "trust_streak": -1,
+          "trust_flow_trend": "NEUTRAL",
+          "dealer_net_1d": -145219.0,
+          "dealer_net_ratio_1d": -0.004209320192426562,
+          "dealer_net_3d": 1099284.0,
+          "dealer_net_ratio_3d": 0.006913386005636469,
+          "dealer_net_5d": 2073584.0,
+          "dealer_net_ratio_5d": 0.009027961985682472,
+          "dealer_net_10d": 839442.0
+        },
+        "component_scores": {
+          "foreign": 0.0,
+          "trust": 0.0
+        },
+        "reasons": [
+          "外資與投信同步賣超，增加支撐失效風險",
+          "外資偏賣超",
+          "投信偏賣超"
+        ],
+        "availability_policy": "observed_point_in_time"
+      },
+      "text": "法人籌碼：中性（截至 2026-09-21）\n・外資與投信同步賣超，增加支撐失效風險\n・外資偏賣超\n・投信偏賣超"
+    },
+    {
+      "symbol": "3211.TWO",
+      "context": {
+        "institutional_score": 2.0,
+        "institutional_level": "BULLISH",
+        "signal": "BULLISH",
+        "data_date": "2026-09-21",
+        "actual_data_date": "2026-09-21",
+        "expected_trade_date": "2026-09-21",
+        "target_date": "2026-09-21",
+        "freshness": "FRESH",
+        "previous_session_context": false,
+        "calendar_policy": "weekdays_with_configured_closures",
+        "latest_available_institutional_date": "2026-09-21",
+        "source": "TPEx",
+        "market": "TPEx",
+        "foreign_net": 1257239.0,
+        "investment_trust_net": 434000.0,
+        "dealer_net": 122573.0,
+        "confidence": 1.0,
+        "features": {
+          "foreign_net_1d": 1257239.0,
+          "foreign_net_ratio_1d": 0.14078743783210196,
+          "foreign_net_3d": 925539.0,
+          "foreign_net_ratio_3d": 0.07170685890784403,
+          "foreign_net_5d": 451399.0,
+          "foreign_net_ratio_5d": 0.025849032952550772,
+          "foreign_net_10d": 178596.0,
+          "foreign_streak": 1,
+          "foreign_flow_trend": "NEUTRAL",
+          "trust_net_1d": 434000.0,
+          "trust_net_ratio_1d": 0.04859994640568122,
+          "trust_net_3d": 362700.0,
+          "trust_net_ratio_3d": 0.028100466566914013,
+          "trust_net_5d": 760700.0,
+          "trust_net_ratio_5d": 0.043560928063654046,
+          "trust_net_10d": -312000.0,
+          "trust_streak": 2,
+          "trust_flow_trend": "NEUTRAL",
+          "dealer_net_1d": 122573.0,
+          "dealer_net_ratio_1d": 0.013725901453418352,
+          "dealer_net_3d": 110752.0,
+          "dealer_net_ratio_3d": 0.008580597941050072,
+          "dealer_net_5d": 137005.0,
+          "dealer_net_ratio_5d": 0.007845490928567006,
+          "dealer_net_10d": 43196.0
+        },
+        "component_scores": {
+          "foreign": 1.0,
+          "trust": 1.0
+        },
+        "reasons": [
+          "外資與投信同步買超，有利於支撐守住",
+          "外資偏買超",
+          "投信偏買超"
+        ],
+        "availability_policy": "observed_point_in_time"
+      },
+      "text": "法人籌碼：偏多（截至 2026-09-21）\n・外資與投信同步買超，有利於支撐守住\n・外資偏買超\n・投信偏買超"
+    }
+  ]
+}

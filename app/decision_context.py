@@ -3,6 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from app.market_data import is_finite_number
 from app.decision_engine import DecisionConfig, DecisionContext
+from app.position_status import position_metadata
 
 
 def number(value):
@@ -52,6 +53,10 @@ def build_decision_context(result, data=None, *, previous_zones=None, config=Non
             if baseline is not None and baseline > 0 and volume is not None and volume >= 0:
                 volume_ratio = volume / baseline
     flow = sr.get('institutional_context') or {}
+    from app.institutional_flow.freshness import usable
+    if not usable(flow):
+        flow = {**flow, 'institutional_level': 'UNKNOWN', 'institutional_score': None,
+                'confidence': 0., 'features': {}}
     candidate = sr.get('bayesian_support_selected') or {}
     display = candidate.get('display') or {}
     from app.decision_zones import displayed_zones, reference, overlap
@@ -159,6 +164,12 @@ def build_decision_context(result, data=None, *, previous_zones=None, config=Non
     hist, old_hist = number(result.get('macd_histogram')), number(result.get('previous_macd_histogram'))
     from app.support_resistance_analysis.selection import recent_breakout_reference
     return DecisionContext(
+        **position_metadata(result),
+        unrealized_return=((price / result['average_cost'] - 1) * 100
+            if result.get('position_status') == 'HOLDING' and number(result.get('average_cost'))
+            and result['average_cost'] > 0 and price is not None else None),
+        volume_deteriorating=bool(volume_ratio is not None and volume_ratio >= c.volume_confirmation_ratio
+            and previous_price is not None and price is not None and price < previous_price),
         breakout_reference_zone=recent_breakout_reference(sr, price, atr, stamp, near_atr=c.near_zone_atr)
             if resistance is None else None,
         level_interactions=interactions,
@@ -182,6 +193,7 @@ def build_decision_context(result, data=None, *, previous_zones=None, config=Non
         institutional_confidence=number(flow.get('confidence')) or 0,
         institutional_selling_weakened='SELLING_WEAKENING' in (flow.get('features') or {}).values(),
         institutional_as_of=flow.get('latest_available_institutional_date'),
+        institutional_freshness=flow.get('freshness', 'FRESH'),
         atr=atr, atr_percent=number(result.get('atr_percent')), volatility_level=result.get('volatility_level', '資料不足'),
         macd_state=macd.get('position', 'unknown'), macd_momentum=macd.get('momentum', 'data_insufficient'),
         macd_histogram_change_atr=(hist - old_hist) / atr if hist is not None and old_hist is not None and atr is not None and atr > 0 else None,

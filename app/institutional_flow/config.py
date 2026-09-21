@@ -19,10 +19,13 @@ class FlowConfig:
     history_days: int = 45
     max_age_days: int = 10
     timeout_seconds: float = 10.
+    publication_hour: int = 16
+    retry_seconds: float = 900.
+    closed_dates: tuple[str, ...] = ()
 
     def __post_init__(self):
         positive = ('streak_days', 'cumulative_ratio', 'daily_ratio', 'score_limit',
-                    'bullish_threshold', 'strong_threshold', 'history_days', 'max_age_days', 'timeout_seconds')
+                    'bullish_threshold', 'strong_threshold', 'history_days', 'max_age_days', 'timeout_seconds', 'retry_seconds')
         nonnegative = ('foreign_weight', 'trust_weight', 'consensus_bonus', 'log_odds_per_point')
         if any(not math.isfinite(getattr(self, k)) or getattr(self, k) <= 0 for k in positive):
             raise ValueError('Thresholds and windows must be finite and positive')
@@ -30,6 +33,11 @@ class FlowConfig:
             raise ValueError('Weights must be finite and nonnegative')
         if not 0 <= self.mixed_confidence <= 1 or not self.bullish_threshold < self.strong_threshold <= self.score_limit:
             raise ValueError('Invalid confidence or level thresholds')
+        if not isinstance(self.publication_hour, int) or not 14 <= self.publication_hour <= 23:
+            raise ValueError('Publication hour must be after market close')
+        from datetime import date
+        for day in self.closed_dates:
+            date.fromisoformat(day)
 
 
 DEFAULT_CONFIG = FlowConfig()

@@ -1,6 +1,7 @@
 from datetime import datetime
 import hashlib
 from zoneinfo import ZoneInfo
+from app.position_status import format_position
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -245,6 +246,9 @@ def run_monitor_job():
         display_price_text = display_price if is_finite_number(display_price) else "資料不足"
 
         print(f"{stock_code} {stock_name}｜{price_label}：{display_price_text}｜漲跌幅：{change_percent_text}")
+        position_lines = format_position(previous_state | data, display_price)
+        for line in position_lines:
+            print(line)
         print(f"  相對大盤：{relative_text}")
         quality_lines = build_quality_display_lines(
             analysis_is_valid,
@@ -325,6 +329,7 @@ def run_monitor_job():
                 *notification_header,
                 f"**{stock_code} {stock_name}**",
                 f"{price_label}：{display_price_text}｜漲跌幅：{change_text}",
+                *position_lines,
                 f"相對大盤：{relative_text}",
                 "",
                 *quality_lines,
@@ -429,7 +434,7 @@ def start_scheduler():
     scheduler.add_job(
         run_monitor_job,
         trigger="interval",
-        minutes=0.5,
+        minutes=2,
         id="watchlist_monitor",
         replace_existing=True
     )

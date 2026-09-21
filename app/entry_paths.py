@@ -140,6 +140,16 @@ def entry_action(paths, fallback, volatility):
     return A.WATCH_FOR_CONFIRMATION if fallback in (A.ALLOW_PROBE_ENTRY, A.ENTRY_CONDITION_MET) else fallback
 
 
+def confirmation_count(eligible, identity, context, old, stamp, config):
+    """Shared confirmation policy for entry paths and position trade actions."""
+    new = bool(context.observation_time and (not stamp or context.observation_time > stamp)
+               and context.observation_complete and context.data_valid)
+    count = old.get('count', 0) if old.get('identity') == identity and eligible else 0
+    if new and eligible:
+        count = min(count + 1, config.confirmation_required)
+    return count, context.observation_time if new else stamp
+
+
 def stabilize_paths(paths, context, previous, config):
     """Reuse daily debounce policy independently for each path and zone identity."""
     import json
@@ -156,18 +166,14 @@ def stabilize_paths(paths, context, previous, config):
         identity = z.get('stable_zone_id') or z.get('zone_id') or [z.get('low'), z.get('high')]
         old = memory.get(key, {})
         stamp = old.get('last_observation_time') or previous.get('last_observation_time')
-        new = bool(context.observation_time and (not stamp or context.observation_time > stamp)
-                   and context.observation_complete and context.data_valid)
-        count = old.get('count', 0) if old.get('identity') == identity and p['eligible'] else 0
-        if new and p['eligible']:
-            count = min(count + 1, config.confirmation_required)
+        count, stamp = confirmation_count(p['eligible'], identity, context, old, stamp, config)
         p['confirmation_count'] = count
         if p['eligible']:
             p['ready'] = count >= config.confirmation_required
             p['status'] = PathStatus.READY if p['ready'] else PathStatus.WAITING_CONFIRMATION
             p['missing'] = [] if p['ready'] else ['等待連續有效收盤確認']
         updated[key] = dict(identity=identity, count=count,
-                            last_observation_time=context.observation_time if new else stamp)
+                            last_observation_time=stamp)
     return summarize(paths), json.dumps(updated, ensure_ascii=False)
 
 

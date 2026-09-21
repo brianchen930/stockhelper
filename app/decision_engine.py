@@ -1,6 +1,7 @@
 """Deterministic market decisions. No IO; scores are not probabilities."""
 from dataclasses import dataclass, field
 from enum import StrEnum
+from app.position_status import PositionStatus
 
 
 class ActionState(StrEnum):
@@ -67,6 +68,9 @@ class DecisionConfig:
     tighten_risk_score: float = 4.
     bearish_acceleration_atr: float = .02
     retained_evidence_max_days: int = 10
+    trade_min_upside_pct: float = 2.
+    trade_add_upside_pct: float = 3.
+    trade_extreme_atr_pct: float = 8.
 
     def __post_init__(self):
         import math
@@ -101,6 +105,7 @@ class DecisionContext:
     institutional_confidence: float = 0.
     institutional_selling_weakened: bool = False
     institutional_as_of: str | None = None
+    institutional_freshness: str = 'FRESH'
     atr: float | None = None
     atr_percent: float | None = None
     volatility_level: str = '資料不足'
@@ -132,6 +137,18 @@ class DecisionContext:
     zone_lifecycle_statuses: dict = field(default_factory=dict)
     level_interactions: list[dict] = field(default_factory=list)
     breakout_reference_zone: dict | None = None
+    position_status: PositionStatus = PositionStatus.WATCHING
+    average_cost: float | None = None
+    shares: int | None = None
+    entry_date: str | None = None
+    unrealized_return: float | None = None
+    volume_deteriorating: bool = False
+
+    def __post_init__(self):
+        if self.institutional_freshness != 'FRESH':
+            for key, value in dict(institutional_level='UNKNOWN', institutional_score=None,
+                                   institutional_confidence=0., institutional_selling_weakened=False).items():
+                object.__setattr__(self, key, value)
 
 
 @dataclass
@@ -157,6 +174,13 @@ class TradingDecision:
     state_basis: str = 'INSUFFICIENT_EVIDENCE'
     consistency_warnings: list[str] = field(default_factory=list)
     entry_paths: dict = field(default_factory=dict)
+    decision: str = 'WAIT'
+    position_status: str = 'WATCHING'
+    reasons: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    follow_up: list[str] = field(default_factory=list)
+    trade_evidence: dict = field(default_factory=dict)
+    trade_confirmation_count: int = 0
 
 
 class DecisionEngine:
@@ -291,4 +315,92 @@ class DecisionEngine:
             decision.entry_score = round(decision.entry_score - 2, 2)
         decision.entry_action = entry_action(decision.entry_paths, decision.entry_action, context.volatility_level)
         from app.decision_transitions import attach_triggers
-        return attach_triggers(decision, context, self.config)
+        return self.evaluate_trade(attach_triggers(decision, context, self.config), context)
+
+    def evaluate_trade(self, d, c):
+        """Position-aware action, after market risk evaluation or stabilization.
+
+        Cost never votes on market direction. All positive actions require a
+        support setup, momentum, room, volume and risk evidence together.
+        """
+        from app.position_status import read_position_status
+        holding = read_position_status(c.position_status) == PositionStatus.HOLDING
+        d.position_status = str(read_position_status(c.position_status))
+        d.decision = 'HOLD' if holding else 'WAIT'
+        d.reasons, d.warnings = [], []
+        d.follow_up = ['後續須支撐守穩、動能改善且上方空間足夠，再重新評估']
+        broken = ReasonCode.SUPPORT_BREAK in d.risk_gate or ReasonCode.PREVIOUS_SUPPORT_BREAK in d.risk_gate
+        accelerating = ReasonCode.BEARISH_MACD_ACCELERATION in d.risk_gate
+        bearish = c.medium_term_direction < 0
+        weak_volume = c.volume_deteriorating
+        risk_evidence = ([('主要支撐已確認失守' if ReasonCode.SUPPORT_BREAK in d.risk_gate else '前支撐已確認失守')] if broken else [])
+        risk_evidence += (['中期趨勢偏空'] if bearish else [])
+        risk_evidence += (['MACD 空方動能加速'] if accelerating else [])
+        risk_evidence += (['下跌伴隨放量，量價結構轉弱'] if weak_volume else [])
+        if not broken and c.support_status == 'MINOR_BREAK':
+            risk_evidence.append('主要支撐出現初步跌破，尚未確認失守')
+        if not accelerating and c.macd_momentum in ('bearish_strengthening', 'bullish_weakening'):
+            risk_evidence.append('MACD 動能轉弱')
+        if c.institutional_level == 'STRONG_PRESSURE':
+            risk_evidence.append('法人賣壓明顯')
+        extreme = c.volatility_level in ('極高波動', 'EXTREME') or (c.atr_percent is not None and c.atr_percent >= self.config.trade_extreme_atr_pct)
+        if extreme or c.volatility_level in ('高波動', 'HIGH'):
+            d.warnings.append('波動偏高，新增部位須控制曝險')
+        if holding and c.unrealized_return is not None and c.unrealized_return < 0:
+            d.warnings.append('目前帳面虧損；成本不構成加碼或延後退出的理由')
+        rz, sz = c.active_resistance_zone, c.active_support_zone
+        upside = round((rz['low'] / c.current_price - 1) * 100, 8) if rz and c.current_price and c.current_price > 0 else None
+        high = c.support_probability in ('高', '極高', 'HIGH', 'VERY_HIGH')
+        very_high = c.support_probability in ('極高', 'VERY_HIGH')
+        improving = c.macd_momentum in ('bearish_weakening', 'bullish_strengthening')
+        near = bool(sz and c.distance_to_support is not None and c.distance_to_support <= self.config.near_zone_atr
+                    and c.current_price is not None and c.current_price >= sz['low']
+                    and c.support_status in ('TESTING', 'HOLDING', 'RECLAIMED', 'APPROACHING'))
+        gates = [g for g in d.risk_gate if g != ReasonCode.EXTREME_VOLATILITY]
+        severe_risk = d.holder_action in (HolderActionState.TIGHTEN_RISK, HolderActionState.REDUCE_EXPOSURE, HolderActionState.EXIT_CONDITION_APPROACHING)
+        checks = {
+            'valid': bool(c.data_valid and c.observation_complete and c.atr and c.atr > 0 and c.volatility_level != '資料不足' and d.state_basis != 'STALE_DATA'),
+            'trend': c.medium_term_direction >= 0 and c.price_above_ma20 is not None and c.price_above_ma60 is not None
+                and not (c.price_above_ma20 is False and c.price_above_ma60 is False),
+            'support': near and high,
+            'momentum': improving and c.price_above_ma5 is True,
+            'room': upside is not None and upside > self.config.trade_min_upside_pct,
+            'volume': c.volume_ratio is not None and c.volume_ratio > 0 and not weak_volume,
+            'risk': not gates and not severe_risk and not c.overextended and not accelerating,
+            'volatility': not extreme or (very_high and c.macd_momentum == 'bullish_strengthening' and c.kd_state == 'BULLISH' and c.price_above_ma20 is True),
+        }
+        add_checks = (c.medium_term_direction > 0 and c.short_term_direction >= 0
+                      and c.price_above_ma20 is True and c.kd_state == 'BULLISH'
+                      and upside is not None and upside > self.config.trade_add_upside_pct)
+        eligible = all(checks.values()) and (not holding or add_checks)
+        d.trade_evidence = dict(checks=checks, eligible=eligible, upside_percent=upside,
+                               risk_evidence=risk_evidence, average_cost=c.average_cost,
+                               unrealized_return=c.unrealized_return, version=1)
+        if not checks['valid']:
+            d.reasons = ['目前缺少有效收盤或必要風險資料', '暫不新增部位', '待有效資料補齊再評估市場結構']
+            d.warnings.append('目前決策資料不足，不能解讀為風險已解除')
+        elif holding and broken and bearish and (accelerating or weak_volume):
+            d.decision, d.reasons = 'EXIT', risk_evidence + ['主要交易假設已失效']
+        elif holding and (len(risk_evidence) >= 2 or (
+                severe_risk and d.state_basis == 'RETAINED_PENDING_CONFIRMATION')):
+            d.decision = 'REDUCE'
+            d.reasons = risk_evidence + ['風險已提高，尚未達完整退出條件']
+            if d.state_basis == 'RETAINED_PENDING_CONFIRMATION':
+                d.reasons.append('原風險改善尚待連續新日線確認')
+        elif eligible:
+            d.decision = 'ADD' if holding else 'ENTER'
+            d.reasons = ['目前回測有效支撐區', '支撐成功率評等：' + c.support_probability,
+                         '中期結構與均線允許承接', 'MACD 動能改善', '距離上方壓力仍有合理空間']
+            if holding:
+                d.warnings.append('目前已有持倉，新增部位會提高曝險')
+        elif holding:
+            d.reasons = risk_evidence + ['目前沒有足夠加碼證據', '目前未達減碼或退出的交叉確認條件', '維持現有部位並觀察結構變化']
+        else:
+            missing = {'trend': '中期趨勢或均線結構偏弱', 'support': '尚未靠近高可信度有效支撐',
+                       'momentum': '動能與短期均線尚未共同改善', 'room': '上方壓力空間不足或缺少有效壓力參考',
+                       'volume': '量價惡化或量能資料不足', 'risk': '既有風險限制尚未解除',
+                       'volatility': '極高波動所需的加強確認尚未成立'}
+            d.reasons = risk_evidence + [v for k, v in missing.items() if not checks[k]]
+        if sz:
+            d.follow_up = [f"後續觀察 {sz['low']:g}～{sz['high']:g} 支撐；守穩或失守後須合併趨勢與動能重新評估"]
+        return d

@@ -20,6 +20,9 @@ def create_tables(connection):
         PRIMARY KEY(symbol,date,observed_at))''')
     connection.execute('''CREATE TABLE IF NOT EXISTS institutional_fetch_state (
         symbol TEXT PRIMARY KEY, attempted_date TEXT NOT NULL)''')
+    connection.execute('''CREATE TABLE IF NOT EXISTS institutional_refresh_state (
+        symbol TEXT NOT NULL, market TEXT NOT NULL, target_date TEXT NOT NULL,
+        attempted_at TEXT NOT NULL, PRIMARY KEY(symbol,market,target_date))''')
     connection.execute('''CREATE TABLE IF NOT EXISTS institutional_support_events (
         id INTEGER PRIMARY KEY, symbol TEXT NOT NULL, timestamp TEXT NOT NULL,
         support_low REAL NOT NULL, support_high REAL NOT NULL,
@@ -43,6 +46,18 @@ class FlowStore:
             row = con.execute('SELECT attempted_date FROM institutional_fetch_state WHERE symbol=?', (symbol,)).fetchone()
             return row is not None and row[0] == day
 
+    def refresh_due(self, symbol, market, target, now, retry_seconds):
+        from .features import taipei_time
+        with closing(self.connect()) as con:
+            row = con.execute('SELECT attempted_at FROM institutional_refresh_state WHERE symbol=? AND market=? AND target_date=?',
+                              (symbol, market, target)).fetchone()
+        return row is None or (now - taipei_time(row[0])).total_seconds() >= retry_seconds
+
+    def mark_refresh(self, symbol, market, target, now):
+        with closing(self.connect()) as con, con:
+            con.execute('INSERT INTO institutional_refresh_state VALUES (?,?,?,?) ON CONFLICT(symbol,market,target_date) DO UPDATE SET attempted_at=excluded.attempted_at',
+                        (symbol, market, target, now.isoformat()))
+
     def mark_attempt(self, symbol, day):
         with closing(self.connect()) as con, con:
             con.execute('INSERT INTO institutional_fetch_state VALUES (?,?) ON CONFLICT(symbol) DO UPDATE SET attempted_date=excluded.attempted_date', (symbol, day))
@@ -59,15 +74,15 @@ class FlowStore:
                 con.execute(f"INSERT INTO institutional_flow ({','.join(cols)}) VALUES ({','.join('?' for _ in cols)}) ON CONFLICT(symbol,date) DO UPDATE SET {updates}",
                             [row[c] for c in RAW_COLUMNS] + [observed_at, observed_at])
 
-    def history(self, symbol, as_of, *, strict=True):
+    def history(self, symbol, as_of, *, strict=True, market=None):
         from .features import taipei_time
         cutoff = taipei_time(as_of)
         with closing(self.connect()) as con:
-            versions = con.execute('SELECT date,observed_at,payload FROM institutional_flow_versions WHERE symbol=? AND date<? ORDER BY observed_at', (symbol.split('.')[0], cutoff.date().isoformat())).fetchall()
+            versions = con.execute('SELECT date,observed_at,payload FROM institutional_flow_versions WHERE symbol=? AND date<=? ORDER BY observed_at', (symbol.split('.')[0], cutoff.date().isoformat())).fetchall()
         selected = {}
         for day, observed, payload in versions:
             row = json.loads(payload)
-            if taipei_time(row['available_at']) <= cutoff and (not strict or taipei_time(observed) <= cutoff):
+            if (market is None or row['market'] == market) and taipei_time(row['available_at']) <= cutoff and (not strict or taipei_time(observed) <= cutoff):
                 selected[day] = row
         return [selected[day] for day in sorted(selected)]
 

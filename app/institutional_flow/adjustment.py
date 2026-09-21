@@ -3,6 +3,7 @@ import math
 from app.bayesian_support.model import stable_logistic
 from app.bayesian_support.rating import RATINGS, rate_support_probability
 from .config import DEFAULT_CONFIG
+from .freshness import usable
 
 
 def adjust_probability(base, context, *, side='support', config=DEFAULT_CONFIG):
@@ -12,7 +13,7 @@ def adjust_probability(base, context, *, side='support', config=DEFAULT_CONFIG):
         return None
     if not math.isfinite(base) or not 0 <= base <= 1:
         raise ValueError('Probability must be finite and within [0,1]')
-    if context['institutional_level'] == 'UNKNOWN' or base in (0., 1.):
+    if not usable(context) or context['institutional_level'] == 'UNKNOWN' or base in (0., 1.):
         return base
     delta = config.log_odds_per_point * context['institutional_score'] * context['confidence']
     if side == 'resistance':

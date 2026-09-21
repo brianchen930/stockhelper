@@ -1,5 +1,5 @@
-from fastapi import FastAPI
-from app.stock import get_stock_price, get_stock_history
+from fastapi import FastAPI, HTTPException
+from app.position_status import PositionStatus, position_metadata, validate_position_fields
 from app.stock import (
     get_stock_price,
     get_stock_history,
@@ -7,11 +7,13 @@ from app.stock import (
     get_stock_analysis,
     analyze_watchlist
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from app.database import (
     create_tables,
     add_stock,
     get_all_stocks,
+    get_stock,
+    update_position,
     delete_stock
 )
 from app.notifier import send_discord_message
@@ -51,13 +53,46 @@ def test_notification():
 
 create_tables()
 
-class WatchlistCreate(BaseModel):
+class PositionFields(BaseModel):
+    average_cost: float | None = None
+    shares: int | None = None
+    entry_date: str | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_raw_fields(cls, values):
+        return validate_position_fields(values)
+
+
+class WatchlistCreate(PositionFields):
     stock_code: str
     stock_name: str | None = None
+    position_status: PositionStatus = PositionStatus.WATCHING
+
+
+class WatchlistUpdate(PositionFields):
+    position_status: PositionStatus | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_patch(cls, values):
+        if not isinstance(values, dict) or not values or set(values) - set(cls.model_fields):
+            raise ValueError('請提供有效的持倉更新欄位')
+        if 'position_status' in values and values['position_status'] is None:
+            raise ValueError('position_status 不可為 null')
+        return values
+
+
+@app.patch("/watchlist/{stock_code}")
+def update_watchlist_stock(stock_code: str, stock: WatchlistUpdate):
+    result = update_position(stock_code, **stock.model_dump(exclude_unset=True))
+    if result is None:
+        raise HTTPException(status_code=404, detail="股票不存在於觀望清單中")
+    return result
 
 @app.post("/watchlist")
 def add_to_watchlist(stock: WatchlistCreate):
-    result = add_stock(stock_code=stock.stock_code, stock_name=stock.stock_name)
+    result = add_stock(**stock.model_dump())
     if result is None:
         return {
             "error": "股票已存在於觀望清單中"
@@ -137,9 +172,11 @@ def stock_analysis(
     stock_code: str,
     period: str = "6mo"
 ):
+    tracked = get_stock(stock_code) or {}
     result = get_stock_analysis(
         stock_code=stock_code,
-        period=period
+        period=period,
+        **position_metadata(tracked),
     )
 
     if result is None:
@@ -148,46 +185,6 @@ def stock_analysis(
         }
 
     return result
-
-@app.post("/watchlist")
-def create_watchlist_stock(stock: WatchlistCreate):
-    result = add_stock(
-        stock_code=stock.stock_code,
-        stock_name=stock.stock_name
-    )
-
-    if result is None:
-        return {
-            "error": "這檔股票已經在自選股中"
-        }
-
-    return {
-        "message": "新增成功",
-        "stock": result
-    } 
-
-@app.get("/watchlist")
-def read_watchlist():
-    stocks = get_all_stocks()
-
-    return {
-        "count": len(stocks),
-        "stocks": stocks
-    }
-
-@app.delete("/watchlist/{stock_code}")
-def remove_watchlist_stock(stock_code: str):
-    deleted = delete_stock(stock_code)
-
-    if not deleted:
-        return {
-            "error": "自選股中找不到這檔股票"
-        }
-
-    return {
-        "message": "刪除成功",
-        "stock_code": stock_code
-    }
 
 @app.get("/monitor")
 def monitor_watchlist():

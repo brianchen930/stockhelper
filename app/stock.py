@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 from functools import lru_cache
+from app.position_status import PositionStatus, position_metadata, validate_position_fields, calculate_unrealized_pnl
 
 from app.analysis_engine import build_technical_summary, attach_signal_summary
 from app.analysis import analyze_timeframes
@@ -73,10 +74,13 @@ def _build_insufficient_analysis(
     stock_code: str,
     data: pd.DataFrame,
     data_quality: dict,
+    position_status: PositionStatus = PositionStatus.WATCHING,
+    average_cost=None, shares=None, entry_date=None,
 ) -> dict:
     """行情少於兩筆有效 Close 時，回傳可安全顯示的分析結構。"""
     timeframe_analysis = analyze_timeframes(data)
     result = {
+        **position_metadata(dict(position_status=position_status, average_cost=average_cost, shares=shares, entry_date=entry_date)),
         "stock_code": stock_code,
         "date": data_quality.get("latest_valid_date"),
         "close": data_quality.get("latest_valid_close"),
@@ -125,6 +129,7 @@ def _build_insufficient_analysis(
     from app.decision_context import attach_decision
     attach_decision(result, data)
     attach_signal_summary(result, analysis_is_valid=False)
+    result.update(calculate_unrealized_pnl(result, result.get("close")))
     return result
 
 
@@ -436,7 +441,12 @@ def get_stock_analysis(
     stock_code: str,
     period: str = "6mo",
     *, research_mode: bool = False,
+    position_status: PositionStatus | str = PositionStatus.WATCHING,
+    average_cost=None, shares=None, entry_date=None,
 ):
+    position_status = PositionStatus(position_status)
+    metadata = position_metadata(validate_position_fields(dict(
+        position_status=position_status, average_cost=average_cost, shares=shares, entry_date=entry_date)))
     resolved_symbol = resolve_yahoo_symbol(stock_code)
     ticker = yf.Ticker(resolved_symbol)
 
@@ -448,7 +458,7 @@ def get_stock_analysis(
 
     data, data_quality = normalize_history(raw_data)
     if len(data) < 2:
-        return _build_insufficient_analysis(stock_code, data, data_quality)
+        return _build_insufficient_analysis(stock_code, data, data_quality, **metadata)
 
     # 計算均線
     data = calculate_moving_averages(data)
@@ -510,6 +520,7 @@ def get_stock_analysis(
     )
 
     analysis_result = {
+        **metadata,
         "stock_code": stock_code,
         "date": data.index[-1].strftime("%Y-%m-%d"),
         "history_date": data.index[-1].strftime("%Y-%m-%d"),
@@ -652,6 +663,10 @@ def get_stock_analysis(
     analysis_result['timeframe_analysis'] = analyze_timeframes(data, analysis_result['support_resistance'])
     attach_decision(analysis_result, data, previous_zones=previous_zones)
     attach_signal_summary(analysis_result)
+    display_price = analysis_result.get('realtime_price')
+    if display_price is None:
+        display_price = analysis_result.get('close')
+    analysis_result.update(calculate_unrealized_pnl(metadata, display_price))
     return analysis_result
 
 
@@ -661,15 +676,17 @@ def analyze_watchlist(stocks: list[dict]):
     for stock in stocks:
         stock_code = stock["stock_code"]
         stock_name = stock.get("stock_name")
+        metadata = position_metadata(stock)
 
         try:
-            analysis = get_stock_analysis(stock_code)
+            analysis = get_stock_analysis(stock_code, **metadata)
 
             if analysis is None:
                 results.append({
                     "stock_code": stock_code,
                     "stock_name": stock_name,
                     "status": "error",
+                    **metadata,
                     "error": "找不到股票資料",
                 })
                 continue
@@ -678,6 +695,7 @@ def analyze_watchlist(stocks: list[dict]):
                 "stock_code": stock_code,
                 "stock_name": stock_name,
                 "status": "success",
+                **metadata,
                 "data": analysis,
             })
 
@@ -686,6 +704,7 @@ def analyze_watchlist(stocks: list[dict]):
                 "stock_code": stock_code,
                 "stock_name": stock_name,
                 "status": "error",
+                **metadata,
                 "error": str(error),
             })
 

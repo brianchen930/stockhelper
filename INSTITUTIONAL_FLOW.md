@@ -1,5 +1,8 @@
 # 法人籌碼修正層
 
+> 2026-09-21 更新：當日取得與 freshness 修正已完成。完整診斷、目前規則、
+> 修改清單與驗證結果請見 [INSTITUTIONAL_FRESHNESS.md](INSTITUTIONAL_FRESHNESS.md)。
+
 ## 架構與範圍
 
 `stock.get_stock_analysis()` 在既有支撐偵測與 Bayesian inference 後，呼叫
@@ -18,11 +21,12 @@ Swing、Volume Profile、VWAP、Cluster、ATR、Touch、歷史反應與 Bayesian
 | 檔案 | 責任 |
 |---|---|
 | `config.py` | 集中評分門檻、權重、有效天數及修正係數 |
-| `provider.py` | FinMind 請求、市場辨識與股數正規化 |
+| `provider.py` | TWSE／TPEx 指定日期官方報表、FinMind 歷史／備援、市場辨識與股數正規化 |
 | `storage.py` | SQLite 日資料 upsert、版本、下載狀態與事件快照 |
 | `features.py` | 時點限制、累積量／比例、連續天數、動能與動態原因 |
 | `adjustment.py` | 保留原始 posterior，額外計算修正後機率 |
-| `service.py` | 日頻快取、歷史唯讀查詢、資料失敗 fallback |
+| `service.py` | 目標交易日快取、15 分鐘失敗重試、歷史唯讀查詢、資料失敗 fallback |
+| `freshness.py` | 目標日／預期日、FRESH／STALE／UNAVAILABLE 與休市日設定 |
 | `integration.py` | 主流程接點與預測快照 |
 | `presentation.py` | 最多三條原因與 debug 明細 |
 | `backtest.py` | 在現有 OOS 預測上附加 A/B 比較欄位 |
@@ -35,7 +39,7 @@ Swing、Volume Profile、VWAP、Cluster、ATR、Touch、歷史反應與 Bayesian
 
 ## 資料來源與每日取得
 
-使用 [FinMind 官方籌碼 API 文件](https://finmind.github.io/tutor/TaiwanMarket/Chip/)
+歷史／備援使用 [FinMind 官方籌碼 API 文件](https://finmind.github.io/tutor/TaiwanMarket/Chip/)
 所列 `TaiwanStockInstitutionalInvestorsBuySell`，分母由同來源
 `TaiwanStockPrice.Trading_Volume` 取得。使用 requests，不需要安裝 FinMind SDK。
 可用環境變數 `FINMIND_TOKEN` 傳入 API token；金鑰不寫進資料庫或日誌。
@@ -52,16 +56,17 @@ FinMind 此 endpoint 同時提供兩市場資料，查詢參數使用裸 `stock_
 多日比例為 **期間淨股數合計 / 同期間成交股數合計**，不是每日比例相加。
 資料缺日會中斷連續天數及窗口，不將缺漏日補零。
 
-每股票每台北曆日最多嘗試一次，自動取得前 45 個曆日至昨天；
-成功與失敗嘗試狀態均持久化，重啟或每半小時監控不重抓。
-來源失敗但有未過期快取時可沿用；沒有可用資料／超過 10 曆日則 UNKNOWN。
-日期窗口及過期政策是保守預設，長假可能退回 UNKNOWN。
+最新資料優先查 TWSE／TPEx 指定日期官方報表及同日官方成交量；FinMind 補歷史。
+收盤 13:30 後查今天，16:00 後要求今天；盤中／週末依最近合理交易日判斷。
+刷新狀態以股票、市場、目標日期持久化；失敗或舊資料 15 分鐘後可重試。
+STALE 與 UNAVAILABLE 均清除法人決策訊號，不能調整支撐機率。
+不再以 10 曆日作 freshness 判斷；保留 max_age_days 設定僅為舊設定相容。
 
 ## 時間與 look-ahead bias
 
 所有時點轉為 Asia/Taipei；無時區時間解讀為台北時間。
-規則同時檢查 `date < as_of.date()` 與 `available_at <= as_of`，當日資料一律隔日使用。
-2026-09-15 11:00 不得使用 2026-09-15 日資料，即使資料已被匯入資料庫。
+規則同時檢查 `date <= as_of.date()` 與 `available_at <= as_of`，實際取得的當日資料可用。
+2026-09-15 11:00 不得使用當天下午才觀測到的資料；strict replay 仍限制 observed_at。
 
 來源不保證歷史首次公開版本，因此額外保留每次內容變化的 `observed_at` 與完整 payload：
 
@@ -103,11 +108,12 @@ UNKNOWN 原樣回傳 base，與 NEUTRAL（已知資料沒有方向）分開。
 
 ## 儲存與回測
 
-啟動時建立四表，不需破壞既有 watchlist：
+啟動時建立所需資料表，不需破壞既有 watchlist：
 
 - `institutional_flow`：完整法人買／賣／淨額、日量、比例、市場、來源、可用時間、建立／更新時間；UNIQUE(symbol,date)。
 - `institutional_flow_versions`：實際觀測時間與版本 payload。
-- `institutional_fetch_state`：每日嘗試日期。
+- `institutional_fetch_state`：舊每日嘗試日期，保留但新服務不再使用。
+- `institutional_refresh_state`：股票／市場／目標日期及實際嘗試時間。
 - `institutional_support_events`：symbol、預測 timestamp、支撐上下界、base／adjusted、score／level、完整特徵、模型結果、設定快照；未結案 outcome 為 NULL。
 
 用 `FlowStore.resolve_event(id, 'HOLD' 或 'BREAK', available_at)` 在結果成熟後記錄。
@@ -138,6 +144,4 @@ Recall、F1、Brier Score、Calibration。這次不聲稱加入法人已改善�
 
 覆蓋指定七種案例，以及單位、類別缺漏、缺日、版本修訂、日頻快取、過期、
 輸出精簡／debug、原始結果不變、事件保存、時區、API 請求契約與回測資料可用性。
-本次最終驗證：完整測試 376 passed（法人專項 18 項），另有既有 Starlette/httpx 棄用提醒。
-實際外連驗證遇到本機 Python CA 信任鏈錯誤；應配置可信 CA（例如 REQUESTS_CA_BUNDLE），
-保留 HTTPS 憑證驗證。離線 API 契約測試不等同於真實資料下載成功。
+最新測試與實際外連結果見 INSTITUTIONAL_FRESHNESS.md。
