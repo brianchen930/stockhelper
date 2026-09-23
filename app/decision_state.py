@@ -84,27 +84,32 @@ def stabilize_trade(d, context, previous, state, config=None):
         old = {}
     zone = context.active_support_zone or {}
     identity = [d.position_status, zone.get('stable_zone_id') or zone.get('zone_id') or [zone.get('low'), zone.get('high')]]
-    count, stamp = confirmation_count(d.decision in ('ENTER', 'ADD'), identity, context, old,
-        old.get('last_observation_time') or previous.get('last_observation_time'), config)
-    d.trade_confirmation_count = count
-    recovering = (d.position_status == 'HOLDING' and old.get('decision') in ('REDUCE', 'EXIT')
-                  and (d.decision in ('HOLD', 'ADD') or (
-                      d.state_basis == 'RETAINED_PENDING_CONFIRMATION' and len(d.trade_evidence['risk_evidence']) < 2))
+    order = {'HOLD': 0, 'OBSERVE': 1, 'CONSIDER_REDUCE': 2, 'REDUCE': 3, 'EXIT': 4}
+    # Legacy positive actions have no selling risk to retain. Old risk states
+    # remain readable; only new weighted observations advance their recovery.
+    old_action = {'ADD': 'HOLD', 'ENTER': 'OBSERVE', 'WAIT': 'OBSERVE'}.get(old.get('decision'), old.get('decision'))
+    candidate = d.decision
+    recovering = (d.position_status == 'HOLDING' and old_action in ('CONSIDER_REDUCE', 'REDUCE', 'EXIT')
+                  and order[candidate] < order[old_action]
                   and d.trade_evidence['checks']['valid'])
     recovery_old = old.get('recovery', {})
-    recovery_count, recovery_stamp = confirmation_count(recovering, ['HOLDING', 'risk_recovery'], context,
+    recovery_count, recovery_stamp = confirmation_count(recovering, identity + [candidate, 'weighted_v4'], context,
         recovery_old, recovery_old.get('last_observation_time') or old.get('last_observation_time'), config)
     if recovering and recovery_count < config.confirmation_required:
-        d.decision = 'REDUCE'
-        d.reasons = ['原減碼風險已緩解，尚待連續新收盤日線確認',
-                     '暫時維持降低曝險建議', '目前未達完整退出條件']
-        d.follow_up = [f'後續須連續 {config.confirmation_required} 根新收盤日線確認風險改善']
-    if d.decision in ('ENTER', 'ADD') and count < config.confirmation_required:
-        d.decision = 'HOLD' if d.position_status == 'HOLDING' else 'WAIT'
-        d.reasons = ['交易候選條件已具備，但連續新收盤日線確認尚未完成'] + d.reasons[:4]
-        d.follow_up = [f'後續須連續 {config.confirmation_required} 根有效收盤日線維持條件；目前 {count} 根']
-    state['trade_memory'] = json.dumps(dict(identity=identity, count=count, last_observation_time=stamp,
-        decision=d.decision, recovery=dict(identity=['HOLDING', 'risk_recovery'], count=recovery_count,
+        # An old EXIT can ease to REDUCE immediately; full recovery still
+        # requires consecutive new closes. Never retain EXIT without evidence.
+        d.decision = 'REDUCE' if old_action == 'EXIT' else old_action
+        # Confirmation metadata is rendered under follow-up, never as a market
+        # reason. Preserve the current support/trend observation conditions.
+    pending = recovering and recovery_count < config.confirmation_required
+    # Completed confirmation is stored in memory; the public pending counter
+    # resets immediately so replaying that close cannot create a new history row.
+    d.trade_confirmation_count = recovery_count if pending else 0
+    d.trade_evidence['recovery'] = dict(pending=pending,
+        previous_action=old_action if pending else None, candidate=candidate,
+        count=d.trade_confirmation_count, required=config.confirmation_required)
+    state['trade_memory'] = json.dumps(dict(version=4, identity=identity, last_observation_time=recovery_stamp,
+        decision=d.decision, recovery=dict(identity=identity + [candidate, 'weighted_v4'], count=recovery_count,
                                            last_observation_time=recovery_stamp)), ensure_ascii=False)
     return d
 

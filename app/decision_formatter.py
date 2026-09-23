@@ -6,19 +6,83 @@ HOLDER_LABELS = dict(zip(H, ('續抱', '謹慎續抱', '提高風險警戒', '�
 
 
 def format_trade_recommendation(decision):
-    """Display only; the engine owns the action, reasons and future conditions."""
-    labels = {'WAIT': '等待', 'ENTER': '可考慮建立初始部位', 'HOLD': '續抱',
-              'ADD': '可考慮加碼', 'REDUCE': '考慮減碼', 'EXIT': '考慮退出'}
-    lines = ['【交易建議】', '目前動作：' + labels[decision['decision']], '原因：']
-    lines.extend('・' + reason for reason in decision['reasons'][:5])
-    warnings = decision.get('warnings', [])[:2]
-    if warnings:
-        lines.append('風險提醒：')
-        lines.extend('・' + item for item in warnings)
-    follow_up = decision.get('follow_up', [])[:3 - len(warnings)]
-    if follow_up:
-        lines.append('後續觀察條件：')
-        lines.extend('・' + item for item in follow_up)
+    """Group existing evidence by the FINAL action, without changing scores.
+
+    A retained REDUCE may have a current HOLD candidate. Never use that
+    candidate's bullish reasons as evidence for the displayed REDUCE.
+    """
+    labels = {'WAIT': '觀察', 'ENTER': '觀察', 'ADD': '持有',
+              'HOLD': '持有', 'OBSERVE': '觀察', 'CONSIDER_REDUCE': '考慮減碼',
+              'REDUCE': '減碼', 'EXIT': '退出'}
+    action = decision['decision']
+    evidence = decision.get('trade_evidence') or {}
+    valid = evidence.get('checks', {}).get('valid', False)
+    ranked = sorted(evidence.get('contributions', []) if valid else [],
+                    key=lambda item: abs(item['points']), reverse=True)
+    # ATR measures variability, not direction. The score remains untouched.
+    directional = [item for item in ranked if item.get('dimension') != 'volatility'
+                   and item.get('code') != 'ATR_RISK_AMPLIFIER']
+    def signal_text(item):
+        # Legacy KD contributions only encode K vs D, not a new bullish cross.
+        return 'KD 尚未明顯轉空' if item.get('code') == 'KD' and item['points'] < 0 else item['text']
+    risks = [signal_text(item) for item in directional if item['points'] > 0]
+    protection = [signal_text(item) for item in directional if item['points'] < 0]
+    holding = decision.get('position_status') == 'HOLDING'
+    reducing = action in ('CONSIDER_REDUCE', 'REDUCE', 'EXIT')
+    holding_action = action in ('HOLD', 'ADD')
+    primary = protection if holding_action else risks
+    if not valid:
+        primary = ['本輪缺少有效決策資料，無法確認支持目前動作的新訊號']
+    elif not primary:
+        primary = ['本輪沒有足以支持減碼的新風險訊號'] if reducing else ['本輪尚無足夠方向性訊號，維持觀察']
+
+    lines = ['【交易建議】', '目前動作：' + labels[action]]
+    def section(title, items, limit=None):
+        items = list(dict.fromkeys(items))
+        if items:
+            lines.append(title + '：')
+            lines.extend('・' + item for item in (items[:limit] if limit else items))
+
+    # Do not pad to two reasons when only one current risk is established.
+    section('主要原因', primary, 4)
+    if holding and not holding_action:
+        section('保留部位理由', [text + '（尚不足以推翻退出判斷）' for text in protection]
+                if action == 'EXIT' else protection, 3)
+
+    cost = evidence.get('cost_context') or {}
+    if holding:
+        if valid and cost and evidence.get('average_cost') is not None:
+            rate = cost['return_percent']
+            impact = ('已有獲利緩衝，可優先保護部分獲利' if reducing else '已有獲利緩衝，依支撐與市場訊號管理部位') if rate > 0 else (
+                '不因等待回本延後處理市場風險' if rate < 0 else '依市場訊號管理部位')
+            management = [f"平均成本 {evidence['average_cost']:g}，目前未實現報酬 {rate:+.2f}%，{impact}"]
+        else:
+            management = ['持倉成本或本輪行情資料不足，暫不評估未實現報酬的影響']
+        management.append('成本不是技術支撐，不作為單獨買賣依據')
+    else:
+        management = ['目前未持倉；成本與未實現報酬不參與本輪操作判斷']
+    section('持倉狀態', management)
+
+    follow_up = list(decision.get('follow_up') or [])
+    recovery = evidence.get('recovery') or {}
+    if recovery.get('pending'):
+        progress = (f"風險改善確認：{recovery['count']}/{recovery['required']} 根新收盤日線；"
+                    f"需連續 {recovery['required']} 根確認，才考慮降低減碼警戒")
+        follow_up.insert(0, progress)
+        follow_up.insert(1, '目前動作保留先前風險警戒；本輪改善訊號尚未完成確認')
+    if reducing and action != 'EXIT':
+        follow_up.append('若支撐確認失守，且動能、法人或中期趨勢同步惡化，再提高減碼或退出程度')
+    if holding_action:
+        follow_up.extend(risks[:2])
+    section('後續觀察', follow_up)
+    reminders = [w for w in decision.get('warnings', [])
+                 if '成本' not in w and '未實現報酬' not in w]
+    if any(item.get('dimension') == 'volatility' or item.get('code') == 'ATR_RISK_AMPLIFIER'
+           for item in ranked) and not any('ATR' in text for text in reminders):
+        reminders.append('ATR 波動度偏高，應控制持倉曝險；波動本身不代表多空方向')
+    if holding:
+        reminders.append('不因虧損攤平，也不因等待回本忽略市場風險')
+    section('風險提醒', reminders)
     return lines
 
 

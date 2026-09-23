@@ -85,8 +85,8 @@ ALTER TABLE watchlist ADD COLUMN entry_date TEXT;
 不刪除或重建資料表。舊 HOLDING 保留原狀態，新增欄位為 NULL，顯示「持倉資料：尚未完整設定」。
 為相容上一版，新增或切換 HOLDING 時也允許暫缺資料，可之後逐欄補齊。
 
-- 成本必須是大於 0 的有限數值，不接受數字字串或布林值。
-- 股數必須是大於 0 的整數，支援 1、17 等零股，不接受字串、布林值或小數型別；上限為 SQLite 有號 64-bit 整數。
+- HOLDING 成本必須是大於 0 的有限數值；WATCHING 可填 0。不接受數字字串或布林值。
+- HOLDING 股數必須是大於 0 的整數；WATCHING 可填 0。支援 1、17 等零股，不接受字串、布林值或小數型別；上限為 SQLite 有號 64-bit 整數。
 - 日期必須是嚴格的 YYYY-MM-DD 且為真實日期。
 - PATCH 省略的欄位保留原值，明確傳入 null 清除該持倉欄位；空 PATCH 拒絕。
 - WATCHING 的三個欄位一律清空。即使 request 帶入合法持倉資料也不儲存；非法資料仍拒絕。

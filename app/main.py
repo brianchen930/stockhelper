@@ -69,6 +69,15 @@ class WatchlistCreate(PositionFields):
     stock_name: str | None = None
     position_status: PositionStatus = PositionStatus.WATCHING
 
+    @model_validator(mode='before')
+    @classmethod
+    def validate_raw_fields(cls, values):
+        # Before validators run before Pydantic fills the default status.
+        if isinstance(values, dict):
+            validate_position_fields({'position_status': PositionStatus.WATCHING, **values})
+            return values
+        return validate_position_fields(values)
+
 
 class WatchlistUpdate(PositionFields):
     position_status: PositionStatus | None = None

@@ -14,6 +14,41 @@ from app.position_status import PositionStatus, format_position_status
 DETAILS = dict(average_cost=480.5, shares=100, entry_date='2026-09-10')
 
 
+@pytest.mark.parametrize('status', [None, 'WATCHING'])
+@pytest.mark.parametrize('fields', [dict(average_cost=0), dict(shares=0), dict(average_cost=0, shares=0)])
+def test_create_watching_accepts_zero(client, db, status, fields):
+    payload = dict(stock_code='2454', **fields)
+    if status is not None:
+        payload['position_status'] = status
+    response = client.post('/watchlist', json=payload)
+    assert response.status_code == 200
+    assert response.json()['position_status'] == 'WATCHING'
+    assert all(db.get_stock('2454')[key] is None for key in POSITION_FIELDS)
+    payload['stock_code'] = '2330'
+    assert db.add_stock(**payload)['position_status'] == 'WATCHING'
+
+
+@pytest.mark.parametrize('field,value', [
+    ('average_cost', -1), ('shares', -1), ('average_cost', '0'),
+    ('shares', '0'), ('average_cost', False), ('shares', False), ('shares', .5),
+])
+def test_watching_still_rejects_invalid_numbers(client, db, field, value):
+    payload = dict(stock_code='2454', position_status='WATCHING', **{field: value})
+    assert client.post('/watchlist', json=payload).status_code == 422
+    with pytest.raises(ValueError):
+        db.add_stock(**payload)
+    assert db.get_stock('2454') is None
+
+
+def test_holding_patch_without_status_still_rejects_zero(client, db):
+    db.add_stock('2408', position_status='HOLDING', **DETAILS)
+    for field in ('average_cost', 'shares'):
+        assert client.patch('/watchlist/2408', json={field: 0}).status_code == 422
+        with pytest.raises(ValueError):
+            db.update_position('2408', **{field: 0})
+    assert all(db.get_stock('2408')[key] == value for key, value in DETAILS.items())
+
+
 def test_position_details_create_partial_update_and_clear(client, db):
     watching = client.post('/watchlist', json={'stock_code': '2454'}).json()
     assert all(watching[key] is None for key in POSITION_FIELDS)
@@ -291,8 +326,8 @@ def test_analysis_propagation_and_decision_unchanged(market, empty):
         assert row['data']['timeframe_analysis']['decision_context']['position_status'] == status
     for key in ('entry_action', 'holder_action', 'risk_gate', 'entry_score', 'risk_score'):
         assert holding['data']['trading_decision'][key] == watching['data']['trading_decision'][key]
-    assert holding['data']['trading_decision']['decision'] in ('ADD', 'HOLD', 'REDUCE', 'EXIT')
-    assert watching['data']['trading_decision']['decision'] in ('ENTER', 'WAIT')
+    assert holding['data']['trading_decision']['decision'] in ('HOLD', 'OBSERVE', 'CONSIDER_REDUCE', 'REDUCE', 'EXIT')
+    assert watching['data']['trading_decision']['decision'] == 'OBSERVE'
     assert holding['data']['analysis'] == watching['data']['analysis']
 
 
@@ -310,7 +345,7 @@ def test_position_does_not_change_market_fingerprint():
     assert context_fingerprint(watching) == context_fingerprint(holding)
     w, h = DecisionEngine().evaluate(watching), DecisionEngine().evaluate(holding)
     assert (w.entry_action, w.holder_action, w.risk_gate) == (h.entry_action, h.holder_action, h.risk_gate)
-    assert w.decision == 'WAIT' and h.decision == 'HOLD'
+    assert w.decision == h.decision == 'OBSERVE'
 
 
 def test_scheduler_terminal_and_discord_update(db, market, monkeypatch, capsys):
@@ -333,6 +368,6 @@ def test_scheduler_terminal_and_discord_update(db, market, monkeypatch, capsys):
         assert f'持倉狀態：{label}' in output
         assert messages and f'持倉狀態：{label}' in messages[-1]
         assert '【交易建議】' in output and '【交易建議】' in messages[-1]
-        assert ('目前動作：續抱' if status == 'HOLDING' else '目前動作：等待') in messages[-1]
+        assert '目前動作：觀察' in messages[-1]  # Fixture has no usable institutional data.
         assert '【操作參考】' not in messages[-1]
         assert 'position_status:' not in messages[-1]

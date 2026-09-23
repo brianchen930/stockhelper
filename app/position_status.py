@@ -28,14 +28,18 @@ def validate_position_fields(values):
     if not isinstance(values, dict):
         raise ValueError('持倉資料必須為 JSON 物件')
     cost, shares, entry = (values.get(key) for key in POSITION_FIELDS)
+    watching = values.get('position_status') == PositionStatus.WATCHING
+    minimum = '大於或等於 0' if watching else '大於 0'
     try:
-        valid_cost = type(cost) in (int, float) and math.isfinite(cost) and cost > 0
+        valid_cost = (type(cost) in (int, float) and math.isfinite(cost)
+                      and (cost >= 0 if watching else cost > 0))
     except OverflowError:
         valid_cost = False
     if cost is not None and not valid_cost:
-        raise ValueError('average_cost 必須為大於 0 的有限數值')
-    if shares is not None and (type(shares) is not int or not 0 < shares <= 9223372036854775807):
-        raise ValueError('shares 必須為大於 0 且可儲存於 SQLite 的整數股數')
+        raise ValueError(f'average_cost 必須為{minimum}的有限數值')
+    if shares is not None and (type(shares) is not int
+                               or not (0 if watching else 1) <= shares <= 9223372036854775807):
+        raise ValueError(f'shares 必須為{minimum}且可儲存於 SQLite 的整數股數')
     if entry is not None:
         if not isinstance(entry, str) or not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', entry):
             raise ValueError('entry_date 必須為 YYYY-MM-DD 合法日期')
