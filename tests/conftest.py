@@ -22,6 +22,14 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def isolate_decision_database(monkeypatch, tmp_path):
+    # Read-only analysis now consumes persisted decision memory. Never let a
+    # unit test depend on the user's live signals (or accidentally write them).
+    from app import database
+    monkeypatch.setattr(database, 'DATABASE_PATH', tmp_path / 'stocks.db')
+
+
+@pytest.fixture(autouse=True)
 def isolate_institutional_service(monkeypatch):
     from app.institutional_flow import integration
     def unavailable():

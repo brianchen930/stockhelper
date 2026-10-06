@@ -33,8 +33,8 @@ def evaluate(c):
 @pytest.mark.parametrize('c,key,expected', [
     (context(), 'breakout', S.READY),
     (context(resistance_status='TESTING', current_price=119), 'breakout', S.WAITING_CONFIRMATION),
-    (context(overextended=True), 'breakout', S.BLOCKED_BY_RISK),
-    (context(volatility_level='EXTREME'), 'breakout', S.BLOCKED_BY_RISK),
+    (context(overextended=True), 'breakout', S.WAITING_CONFIRMATION),
+    (context(volatility_level='EXTREME'), 'breakout', S.WAITING_CONFIRMATION),
     (context(resistance_status='REJECTED'), 'breakout', S.INVALIDATED),
     (pullback(), 'pullback', S.READY),
     (context(current_price=103, support_status='TESTING', distance_to_support=0,
@@ -42,8 +42,8 @@ def evaluate(c):
     (pullback(medium_term_direction=-1), 'pullback', S.INVALIDATED),
     (context(current_price=99, support_status='CONFIRMED_BREAK'), 'pullback', S.INVALIDATED),
     (context(current_price=99, support_status='MINOR_BREAK'), 'pullback', S.WAITING_CONFIRMATION),
-    (pullback(macd_momentum='bullish_weakening'), 'pullback', S.WAITING_CONFIRMATION),
-    (pullback(overextended=True), 'pullback', S.BLOCKED_BY_RISK),
+    (pullback(macd_momentum='bullish_weakening'), 'pullback', S.READY),
+    (pullback(overextended=True), 'pullback', S.WAITING_CONFIRMATION),
 ])
 def test_path_states(c, key, expected):
     assert evaluate(c).entry_paths[key]['status'] == expected
@@ -59,8 +59,8 @@ def test_or_candidates_do_not_require_other_path(c, ready, other, path):
     assert not d.entry_paths[other]['ready']
     assert d.entry_paths['entry_ready'] and d.entry_paths['active_path'] == path
     first, state = stabilize(d, c, {})
-    assert not first.entry_paths['entry_ready']
-    assert first.entry_action == A.WATCH_FOR_CONFIRMATION
+    assert first.entry_paths['entry_ready']
+    assert first.entry_action == A.ENTRY_CONDITION_MET
     c2 = replace(c, observation_time='2026-09-15')
     second, _ = stabilize(evaluate(c2), c2, state)
     assert second.entry_paths['entry_ready']
@@ -68,12 +68,13 @@ def test_or_candidates_do_not_require_other_path(c, ready, other, path):
 
 
 def test_both_paths_can_be_ready():
-    c = context(support_status='HOLDING', distance_to_support=.5)
+    c = context(support_status='HOLDING', distance_to_support=.5,
+                active_support_zone=dict(low=118, high=120, zone_id='support'))
     d = evaluate(c)
     assert d.entry_paths['breakout']['ready'] and d.entry_paths['pullback']['ready']
 
 
-def test_touch_requires_two_new_completed_observations_and_momentum():
+def test_touch_requires_two_new_completed_observations_with_optional_momentum():
     c = context(current_price=103, support_status='TESTING', distance_to_support=0,
                 resistance_status='UNKNOWN')
     first, state = stabilize(evaluate(c), c, {})
@@ -87,13 +88,13 @@ def test_touch_requires_two_new_completed_observations_and_momentum():
     incomplete = replace(c2, observation_complete=False)
     assert not stabilize(evaluate(incomplete), incomplete, state)[0].entry_paths['entry_ready']
     weak = replace(c2, macd_momentum='bullish_weakening')
-    assert not stabilize(evaluate(weak), weak, state)[0].entry_paths['entry_ready']
+    assert stabilize(evaluate(weak), weak, state)[0].entry_paths['entry_ready']
 
 
 def test_path_switch_and_zone_switch_do_not_borrow_confirmation():
-    c = context()
+    c = context(current_price=120.5)
     _, state = stabilize(evaluate(c), c, {})
-    changed = replace(pullback(), observation_time='2026-09-15')
+    changed = replace(pullback(), support_status='TESTING', observation_time='2026-09-15')
     d, _ = stabilize(evaluate(changed), changed, state)
     assert not d.entry_paths['entry_ready']
     assert d.entry_paths['pullback']['confirmation_count'] == 1
@@ -151,7 +152,8 @@ def test_3443_paths_and_formatter_are_independent_and_serializable():
     assert '主要進場路徑：突破型' in text
     assert '目前正在測試 6477.00～6503.00 壓力區' in text
     assert '另一條獨立路徑：回檔型' in text and '6077.00～6128.00' in text
-    assert '風險限制解除' in text
+    assert '風險限制解除' not in text
+    assert 'ATR 極高、正乖離過大限制為小幅試單' in text
     assert '必要條件' not in text
     assert asdict(d) == saved
 
@@ -159,7 +161,7 @@ def test_3443_paths_and_formatter_are_independent_and_serializable():
 def test_path_memory_persists_restart_replay_and_stale(tmp_path):
     db = tmp_path / 'paths.db'
     def run(day):
-        payload = dict(decision_context=asdict(replace(pullback(), symbol='entry-test', observation_time=day)),
+        payload = dict(decision_context=asdict(replace(pullback(), support_status='TESTING', symbol='entry-test', observation_time=day)),
                        timeframe_analysis={})
         with sqlite3.connect(db) as conn:
             update_monitor_decision(payload, conn)

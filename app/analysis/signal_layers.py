@@ -136,6 +136,8 @@ def build_signal_layers(ma_trend, items, timeframe=None, valid=True):
 def format_signal_summary(result):
     """Presentation only: all directions, strength and explanations are inputs."""
     lines = ['【訊號摘要】']
+    if result.get('final_action_state') is not None:
+        lines.append('最終訊號：' + result['final_action_state'])
     for key, title in (('momentum', '動能'), ('trend', '趨勢')):
         layer = result[key]
         lines.append(f"{title}：{layer['direction']}｜{layer['strength']}")

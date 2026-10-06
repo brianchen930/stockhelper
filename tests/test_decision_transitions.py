@@ -48,7 +48,7 @@ def test_473_current_support_not_broken_previous_support_separate():
     assert R.PREVIOUS_SUPPORT_BREAK in d.entry_reasons
     text = format_operation_reference(d)
     assert '前支撐 479.00～481.00' in text['for_non_holder']
-    assert '469.01～470.99 為目前防守區' in text['for_holder']
+    assert '469.05～470.95 為目前結構防守區' in text['for_holder']
     assert '支撐已有效失守' not in json.dumps(text, ensure_ascii=False)
 
 
@@ -59,9 +59,12 @@ def test_main_narrative_decision_share_union_and_do_not_mutate():
     main = format_support_resistance_output(sr)
     narrative = enrich_price_context(baseline(), sr)['overall_summary']
     c = build_decision_context(result, bars, previous_zones=prior)
-    for text in (main, narrative, format_operation_reference(DecisionEngine().evaluate(c))['for_holder']):
+    for text in (main, narrative):
         assert '469.01～470.99' in text
         assert '469.05～470.95' not in text
+    # Holder defense now uses the actual strong zone, not the Bayesian display union.
+    assert c.structural_support_zone['low'] == 469.05
+    assert '469.05～470.95' in format_operation_reference(DecisionEngine().evaluate(c))['for_holder']
     assert result == snapshot
 
 
@@ -95,14 +98,14 @@ def test_avoid_upgrade_and_tighten_worsen_are_structured():
     assert d.entry_upgrade_triggers
     assert d.holder_worsen_triggers
     assert T.RISK_GATES_CLEAR in [t['code'] for t in d.entry_upgrade_triggers]
-    assert T.MEDIUM_TERM_TREND_BREAK in [t['code'] for t in d.holder_worsen_triggers]
+    assert T.HOLDER_CAUTION in [t['code'] for t in d.holder_worsen_triggers]
 
 
 def test_pending_confirmation_and_debug_survive_serialization():
-    c = bullish()
+    c = replace(bullish(), current_price=120.5)
     d, _ = stabilize(DecisionEngine().evaluate(c), c, {})
     assert d.entry_action == A.WATCH_FOR_CONFIRMATION
-    confirmation = next(t for t in d.entry_upgrade_triggers if t['code'] == T.CONSECUTIVE_CONFIRMATION)
+    confirmation = next(t for t in d.entry_upgrade_triggers if t['code'] == 'ENTRY_PATH' and t['path'] == 'BREAKOUT_ENTRY')
     assert confirmation['required_observations'] == 2 and confirmation['completed_observations'] == 1
     text = format_operation_reference(d)
     assert '連續 2 根新收盤日線' in text['for_non_holder']
@@ -121,10 +124,11 @@ def test_normal_recommendation_does_not_repeat_indicators_and_roles_differ():
     d = DecisionEngine().evaluate(c)
     text = format_operation_reference(d)
     rendered = text['for_non_holder'] + text['for_holder']
-    for term in ('ATR', 'MACD', 'RSI', 'KD', '重新檢視風險承受度', '重要價格區'):
+    # ATR is actionable here: breakout distance and the probe-entry cap use it.
+    for term in ('MACD', 'RSI', 'KD', '重新檢視風險承受度', '重要價格區'):
         assert term not in rendered
     assert '法人' in text['for_holder']  # Evidence actually used by the REDUCE branch.
-    assert '進場確認' in text['for_non_holder']
+    assert '目前待確認' in text['for_non_holder']
     assert '防守區' in text['for_holder'] and '無法站回' in text['for_holder']
     assert len(text['for_non_holder'].split('。')) <= 3
     assert len(text['for_holder'].split('。')) <= 6

@@ -15,3 +15,5 @@ __pycache__/
 # Local runtime verification database backup and machine certificate bundle
 runtime_verification/*.db
 runtime_verification/*.pem
+backup_results/
+backtest_results/

@@ -11,6 +11,8 @@ MINIMUM_TRIGGER_REQUIREMENTS = {
     'EXIT_CONDITION_APPROACHING': ('BROKEN_SUPPORT_MEDIUM_BEARISH_MACD_PRESSURE',),
 }
 LABELS = {
+    'PREVIOUS_SUPPORT_BREAK': '前短線支撐失守，觀察是否站回',
+    'SUPPORT_BREAK': '短線支撐失守，停止加碼並提高警戒',
     'CONFIRMED_SUPPORT_BREAK': '目前支撐已確認失守',
     'PREVIOUS_SUPPORT_BREAK_CONFIRMED': '原支撐已確認失守',
     'BEARISH_MACD_ACCELERATION': 'MACD 空方動能增強',
@@ -47,16 +49,15 @@ def item(code, priority='MEDIUM', **details):
 def record_evidence(d, c, rule, contributions, bearish_macd, config):
     primary, supporting, zone = None, [], None
     if rule in ('SUPPORT_BREAK', 'BROKEN_SUPPORT_WITH_CONFIRMING_RISK', 'BROKEN_SUPPORT_MEDIUM_BEARISH_MACD_PRESSURE'):
-        current = 'SUPPORT_BREAK' in d.holder_reasons
-        zone = compact_zone(c.active_support_zone if current else c.previous_support_zone)
-        primary = item('CONFIRMED_SUPPORT_BREAK' if current else 'PREVIOUS_SUPPORT_BREAK_CONFIRMED', 'HIGH', zone=zone)
+        zone = compact_zone(c.structural_support_zone)
+        primary = item('CONFIRMED_SUPPORT_BREAK', 'HIGH', zone=zone, support_scope='STRUCTURAL')
         if rule != 'SUPPORT_BREAK':
+            if c.medium_term_direction < 0:
+                supporting.append(item('MEDIUM_TERM_BEARISH'))
             if c.institutional_level in ('BEARISH', 'STRONG_PRESSURE'):
                 supporting.append(item('STRONG_INSTITUTIONAL_PRESSURE' if c.institutional_level == 'STRONG_PRESSURE' else 'INSTITUTIONAL_BEARISH'))
             if bearish_macd:
                 supporting.append(item('BEARISH_MACD_ACCELERATION'))
-            if rule == 'BROKEN_SUPPORT_MEDIUM_BEARISH_MACD_PRESSURE':
-                supporting.insert(0, item('MEDIUM_TERM_BEARISH'))
     elif rule == 'LOW_SUPPORT_WITH_PRESSURE':
         primary = item('LOW_SUPPORT_PROBABILITY')
         supporting = [item('STRONG_INSTITUTIONAL_PRESSURE')]
@@ -66,7 +67,7 @@ def record_evidence(d, c, rule, contributions, bearish_macd, config):
     d.current_trigger_evidence = dict(version=1, holder_state=str(d.holder_action), matched_rule_id=rule,
         primary_trigger=primary, supporting_evidence=supporting,
         triggered_conditions=([primary] if primary else []) + supporting,
-        trigger_zone=zone, current_defense_zone=compact_zone(c.active_support_zone),
+        trigger_zone=zone, current_defense_zone=compact_zone(c.structural_support_zone), support_policy='STRUCTURAL_V1',
         observation_time=c.observation_time,
         confirmation_context={'breakout': 'CONFIRMED_BREAKOUT' in (c.resistance_status, c.previous_resistance_status),
                               'medium_positive': c.medium_term_direction > 0,
@@ -95,7 +96,7 @@ def valid(evidence, state):
     if state == 'EXIT_CONDITION_APPROACHING':
         return broken and {'MEDIUM_TERM_BEARISH', 'BEARISH_MACD_ACCELERATION', 'STRONG_INSTITUTIONAL_PRESSURE'} <= supporting
     if state == 'REDUCE_EXPOSURE':
-        return broken and bool(supporting & {'INSTITUTIONAL_BEARISH', 'STRONG_INSTITUTIONAL_PRESSURE', 'BEARISH_MACD_ACCELERATION'})
+        return broken and 'MEDIUM_TERM_BEARISH' in supporting
     return broken or (code == 'LOW_SUPPORT_PROBABILITY' and 'STRONG_INSTITUTIONAL_PRESSURE' in supporting) or (
         code == 'RISK_SCORE_THRESHOLD' and primary.get('actual', -1) >= primary.get('threshold', float('inf')) and bool(supporting))
 
@@ -118,6 +119,8 @@ def compact_evidence(evidence):
 
 
 def invalidation(evidence, c, config):
+    if evidence.get('support_policy') != 'STRUCTURAL_V1':
+        return 'LEGACY_NEAREST_SUPPORT_POLICY'
     zone = evidence.get('trigger_zone')
     lifecycle = c.zone_lifecycle_statuses.get(identity(zone), {})
     if lifecycle.get('status') in ('RECLAIMED_SUPPORT', 'RESISTANCE_TO_SUPPORT'):
@@ -190,5 +193,5 @@ def evidence_text(e):
         return ''
     code, zone = e['code'], e.get('zone')
     if zone and code in ('CONFIRMED_SUPPORT_BREAK', 'PREVIOUS_SUPPORT_BREAK_CONFIRMED'):
-        return ('原支撐 ' if code.startswith('PREVIOUS') else '目前支撐 ') + f"{zone['low']:.2f}～{zone['high']:.2f} 已確認失守"
+        return ('結構防守 ' if e.get('support_scope') == 'STRUCTURAL' else '原支撐 ' if code.startswith('PREVIOUS') else '目前支撐 ') + f"{zone['low']:.2f}～{zone['high']:.2f} 已確認失守"
     return LABELS.get(code, code)

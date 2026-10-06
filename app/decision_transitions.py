@@ -17,6 +17,8 @@ class TriggerCode(StrEnum):
     DATA_READY = 'DATA_READY'
     OVEREXTENSION_COOLING = 'OVEREXTENSION_COOLING'
     TREND_CONFIRMATION = 'TREND_CONFIRMATION'
+    SHORT_TERM_SUPPORT_LOSS = 'SHORT_TERM_SUPPORT_LOSS'
+    HOLDER_CAUTION = 'HOLDER_CAUTION'
 
 
 def zone_text(zone):
@@ -27,6 +29,9 @@ def attach_triggers(d, c, config=None):
     config = config or DecisionConfig()
     T = TriggerCode
     support, resistance = c.active_support_zone, c.active_resistance_zone
+    defense = c.structural_support_zone
+    from app.holder_structure import short_support
+    short_zone, short_status = short_support(c)
     previous = c.previous_support_zone
     broken = c.previous_support_status in ('CONFIRMED_BREAK', 'FLIPPED_TO_RESISTANCE')
     # Historical breaks remain risk evidence, not current reclaim targets.
@@ -46,7 +51,10 @@ def attach_triggers(d, c, config=None):
     d.price_context = dict(current_price=c.current_price, level_interactions=c.level_interactions, active_support_zone=support,
         active_resistance_zone=resistance, previous_support_zone=previous,
         current_active_support_status=c.current_active_support_status,
-        previous_support_status=c.previous_support_status)
+        previous_support_status=c.previous_support_status,
+        structural_support_zone=defense, structural_support_status=c.structural_support_status,
+        short_term_support_zone=short_zone, short_term_support_status=short_status,
+        breakout_event=c.breakout_event, support_policy='STRUCTURAL_V1')
     if not c.data_valid:
         ready = trigger(T.DATA_READY)
         d.entry_upgrade_triggers = [ready]
@@ -66,32 +74,44 @@ def attach_triggers(d, c, config=None):
         upgrade.append(weaken)
     if c.resistance_status in ('APPROACHING', 'TESTING') and resistance:
         upgrade.append(trigger(T.VOLUME_CONFIRMED_BREAKOUT, resistance,
-            breakout_atr=config.breakout_atr, volume_ratio=config.volume_confirmation_ratio))
+            breakout_atr=config.breakout_atr, volume_breakout_atr=config.volume_breakout_atr,
+            volume_ratio=config.volume_confirmation_ratio, operator='OR'))
     if d.risk_gate:
         upgrade.append(clear)
     upgrade.append(confirm)
     if d.entry_paths:
-        # Each group is an alternative. Common risk/debounce gates remain AND.
+        # Each path owns its score and daily confirmation; no second debounce.
         upgrade = [dict(code='ENTRY_PATH', operator='OR', path=p['path'],
-                        status=p['status'], zone=p['zone'], missing=p['missing'])
+                        status=p['status'], zone=p['zone'], missing=p['missing'],
+                        entry_score=p['entry_score'], target_action=p['target_action'],
+                        required_observations=p['confirmation_required'],
+                        completed_observations=p['confirmation_count'])
                    for p in (d.entry_paths['breakout'], d.entry_paths['pullback'])]
         if d.risk_gate:
             upgrade.append(clear)
-        upgrade.append(confirm)
     d.entry_upgrade_triggers = upgrade
     d.entry_downgrade_triggers = ([break_trigger] if support else []) + [trigger(T.MEDIUM_TERM_STRUCTURE_WEAKENING, medium_term_score_max=-2)]
-    d.holder_improve_triggers = ([hold] if support else []) + ([reclaim] if key else [])
+    d.holder_improve_triggers = ([trigger(T.SUPPORT_HOLD, defense, support_scope='STRUCTURAL')]
+                                if defense else [])
     if not d.holder_improve_triggers:
         d.holder_improve_triggers.append(weaken)
-    if d.risk_gate:
-        d.holder_improve_triggers.append(clear)
     d.holder_improve_triggers.append(confirm)
-    d.holder_worsen_triggers = ([break_trigger, trigger(T.FAILED_RECLAIM, support,
-        prerequisite='CONFIRMED_SUPPORT_BREAK', subsequent_close_below=support['low'])] if support else []) + [trigger(T.MEDIUM_TERM_TREND_BREAK, medium_term_score_max=-2, short_term_score_max=-2)]
+    d.holder_worsen_triggers = ([trigger(T.CONFIRMED_SUPPORT_BREAK, defense, support_scope='STRUCTURAL',
+        confirmed_break_atr=config.confirmed_break_atr, persistent_break_atr=config.persistent_break_atr),
+        trigger(T.FAILED_RECLAIM, defense, prerequisite='CONFIRMED_SUPPORT_BREAK',
+                subsequent_close_below=defense['low'])] if defense else [])
+    if defense:
+        d.holder_worsen_triggers.append(trigger(T.MEDIUM_TERM_TREND_BREAK, medium_term_score_max=-2))
+    else:
+        d.holder_worsen_triggers.append(trigger(T.HOLDER_CAUTION, allowed_actions=['CAUTION'],
+                                               missing='STRUCTURAL_DEFENSE'))
+    if short_zone:
+        d.holder_worsen_triggers.append(trigger(T.SHORT_TERM_SUPPORT_LOSS, short_zone,
+            allowed_actions=['STOP_ADDING', 'CAUTION', 'WATCH_RECLAIM']))
     if d.current_trigger_evidence:
         from app.decision_evidence import compact_zone
         d.current_trigger_evidence = dict(d.current_trigger_evidence,
-            current_defense_zone=compact_zone(support),
+            current_defense_zone=compact_zone(defense),
             worsen_conditions=d.holder_worsen_triggers,
             improve_conditions=d.holder_improve_triggers)
     return d

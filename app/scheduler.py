@@ -80,13 +80,9 @@ def build_notification_signature(
     matched_rules: list[str],
     summary: str,
 ) -> str:
-    payload = "|".join([
-        current_signal,
-        current_trend,
-        str(score),
-        ";".join(sorted(matched_rules)),
-        summary.strip(),
-    ])
+    # Only the committed signal identifies a signal notification. Raw trend,
+    # scores and prose can fluctuate while that state remains unchanged.
+    payload = 'final-signal-v1|' + current_signal
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -157,10 +153,20 @@ def run_monitor_job():
         previous_state = stock_state_map.get(stock_code, {})
         quality_result = assess_analysis_quality(data)
         analysis_is_valid = quality_result["is_valid"]
+        final_action_state = '無法判斷'
+        decision_ready = False
 
         if analysis_is_valid and not quality_result['issues'] and data.get('decision_context'):
             from app.decision_state import update_monitor_decision
-            update_monitor_decision(data)
+            update_monitor_decision(data, previous_action_state={'signal_state': previous_state.get('last_signal')},
+                                    signal_observation_time=now.isoformat())
+            decision = data.get('trading_decision') or {}
+            final_action_state = decision.get('final_action_state', '無法判斷')
+            decision_ready = (final_action_state in ('偏多', '觀望', '偏空')
+                              and decision.get('signal_persistence', {}).get('status')
+                              in ('INITIALIZED', 'UNCHANGED', 'PENDING', 'CONFIRMED', 'REPLAY',
+                                  'CRITICAL_BYPASS', 'CRITICAL_RISK_RETAINED'))
+        current_signal = final_action_state
 
         if DATA_QUALITY_DEBUG_ENABLED:
             timeframe_analysis = data.get("timeframe_analysis") or {}
@@ -204,6 +210,7 @@ def run_monitor_job():
             support_resistance_state=previous_state.get("support_resistance_state"),
             support_resistance_bar_closed=support_resistance_bar_closed(data.get("support_resistance") or {}, now),
             now=now,
+            final_action_state=final_action_state,
         )
 
         analysis_result = generate_analysis(
@@ -214,6 +221,7 @@ def run_monitor_job():
             analysis_is_valid=analysis_is_valid,
             rule_evidence=rule_result.get('evidence', []),
             timeframe_analysis=data.get('timeframe_analysis'),
+            final_action_state=final_action_state,
         )
         data['signal_summary'] = analysis_result
         current_macd = data.get("macd")
@@ -299,7 +307,8 @@ def run_monitor_job():
         )
 
         technical_send_notification = (
-            rule_result.get("technical_notify", rule_result["should_notify"])
+            decision_ready
+            and rule_result.get("technical_notify", rule_result["should_notify"])
             and notification_signature != previous_state.get("last_notification_signature")
         )
         should_send_notification = technical_send_notification or rule_result.get('support_resistance_notify', False)
@@ -372,10 +381,11 @@ def run_monitor_job():
                                            else previous_state.get('last_notification_signature')),
                 "support_resistance_state": sr_state,
                 "support_resistance_notifications": rule_result.get('support_resistance_notifications', []),
+                "decision_ready": decision_ready,
             })
 
         if analysis_is_valid:
-            if not should_send_notification:
+            if decision_ready and not should_send_notification:
                 update_stock_state(
                     stock_code=stock_code,
                     signal=current_signal,
@@ -400,6 +410,10 @@ def run_monitor_job():
             if sent and item.get('support_resistance_state'):
                 save_support_resistance_state(item['stock_code'], acknowledge_events(
                     item['support_resistance_state'], item['support_resistance_notifications'], now))
+            # Keep the previous delivery baseline on failure so a confirmed
+            # transition can be retried without advancing Persistence again.
+            if not sent or not item['decision_ready']:
+                continue
             update_stock_state(
                 stock_code=item["stock_code"],
                 signal=item["signal"],
@@ -434,7 +448,7 @@ def start_scheduler():
     scheduler.add_job(
         run_monitor_job,
         trigger="interval",
-        minutes=30,
+        minutes=0.5 ,
         id="watchlist_monitor",
         replace_existing=True
     )

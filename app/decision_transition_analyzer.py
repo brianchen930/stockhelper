@@ -20,6 +20,8 @@ class TransitionReasonCode(StrEnum):
     RISK_GATE_PARTIALLY_RELEASED = 'RISK_GATE_PARTIALLY_RELEASED'
     RISK_GATE_ACTIVATED = 'RISK_GATE_ACTIVATED'
     CONFIRMED_SUPPORT_BREAK = 'CONFIRMED_SUPPORT_BREAK'
+    STRUCTURAL_SUPPORT_BREAK = 'STRUCTURAL_SUPPORT_BREAK'
+    STRUCTURAL_SUPPORT_RECLAIMED = 'STRUCTURAL_SUPPORT_RECLAIMED'
     SUPPORT_HOLD_CONFIRMED = 'SUPPORT_HOLD_CONFIRMED'
     SUPPORT_RECLAIMED = 'SUPPORT_RECLAIMED'
     RESISTANCE_BREAKOUT_CONFIRMED = 'RESISTANCE_BREAKOUT_CONFIRMED'
@@ -93,7 +95,9 @@ def context_summary(context, decision, state, config=None):
                               risk_gate=sorted(decision.risk_gate)),
                 confirmation={k: state.get(k) for k in (
                     'candidate_entry_state', 'candidate_holder_state',
-                    'confirmation_count', 'holder_confirmation_count')},
+                    'confirmation_count', 'holder_confirmation_count')} | dict(
+                        entry_confirmation_required=(decision.entry_paths[decision.entry_paths['primary_path']]['confirmation_required']
+                            if decision.entry_paths else (config or DecisionConfig()).confirmation_required)),
                 thresholds=asdict(config or DecisionConfig()))
 
 
@@ -174,7 +178,8 @@ def evidence(previous, current, delta):
     gate_labels = {'SUPPORT_BREAK': '目前支撐失守', 'PREVIOUS_SUPPORT_BREAK': '前一支撐失守',
                    'LOW_SUPPORT_PROBABILITY': '支撐成功率過低', 'STRONG_INSTITUTIONAL_PRESSURE': '法人強力壓力',
                    'BEARISH_MACD_ACCELERATION': '空方動能增強', 'EXTREME_VOLATILITY': '極高波動',
-                   'BOTH_TRENDS_BEARISH': '短中期皆偏空', 'DATA_INSUFFICIENT': '資料不足'}
+                   'BOTH_TRENDS_BEARISH': '短中期皆偏空', 'DATA_INSUFFICIENT': '資料不足',
+                   'BEARISH_MEDIUM_TREND': '中期趨勢偏空', 'OVEREXTENDED': '價格乖離過大'}
     if delta.gates_added:
         add(R.RISK_GATE_ACTIVATED, '新增風險限制：' + '、'.join(gate_labels.get(k, k) for k in delta.gates_added), -1, 100,
             added=delta.gates_added)
@@ -210,6 +215,16 @@ def evidence(previous, current, delta):
     if b and not same_zone(a, b):
         add(R.ACTIVE_SUPPORT_REPOSITIONED if a else R.NEW_ACTIVE_SUPPORT_AVAILABLE,
             '目前支撐改為 ' + zone_label(b) + '，不代表舊支撐風險解除', 0, 45, previous_zone=a, zone=b)
+
+    defense = new.get('structural_support_zone')
+    if defense and same_zone(old.get('structural_support_zone'), defense):
+        before, after = old.get('structural_support_status'), new.get('structural_support_status')
+        if after in broken and before not in broken:
+            add(R.STRUCTURAL_SUPPORT_BREAK, zone_label(defense) + ' 結構防守確認失守', -1, 115, zone=defense)
+            reasons[-1]['role'] = 'HOLDER'
+        elif before in broken and after == 'RECLAIMED':
+            add(R.STRUCTURAL_SUPPORT_RECLAIMED, zone_label(defense) + ' 結構防守重新站回', 1, 115, zone=defense)
+            reasons[-1]['role'] = 'HOLDER'
 
     probability = {'VERY_LOW': 0, '極低': 0, 'LOW': 1, '低': 1, 'MEDIUM': 2, '中': 2,
                    'HIGH': 3, '高': 3, 'VERY_HIGH': 4, '極高': 4}
@@ -302,10 +317,11 @@ def analyze_transition(previous, current, symbol, timestamp=None):
         ('HOLDER', 'holder_state', 'holder_confirmation_count', 'candidate_holder_state')):
         before, after = previous['decision'][key], current['decision'][key]
         kind = transition_type(role, before, after) if before != after else 'UNCHANGED'
-        reasons = [dict(r) for r in candidates]
+        reasons = [dict(r) for r in candidates if r.get('role', role) == role]
         p, c = previous['confirmation'], current['confirmation']
         x, y = p.get(count_key) or 0, c.get(count_key) or 0
-        required = current['thresholds']['confirmation_required']
+        required = (c.get('entry_confirmation_required', current['thresholds']['confirmation_required'])
+                    if role == 'ENTRY' else current['thresholds']['confirmation_required'])
         same_candidate = p.get(candidate_key) == c.get(candidate_key) and c.get(candidate_key) == after
         aggressive = role == 'HOLDER' or after in ('ALLOW_PROBE_ENTRY', 'ENTRY_CONDITION_MET')
         if same_candidate and aggressive and x < required <= y and kind == 'IMPROVEMENT':
@@ -327,6 +343,9 @@ def analyze_transition(previous, current, symbol, timestamp=None):
         # Entry gates do not directly control Holder; keep them as lower priority evidence there.
         if role == 'HOLDER':
             reasons = [dict(r, priority=35) if r['code'].startswith('RISK_GATE_') else r for r in reasons]
+            if current['context'].get('structural_assessment'):
+                reasons = [dict(r, priority=40, text=r['text'].replace('防守區確認失守', '短線支撐失守，停止加碼並觀察是否站回'))
+                           if r['code'] == 'CONFIRMED_SUPPORT_BREAK' else r for r in reasons]
         direction = 1 if kind == 'IMPROVEMENT' else -1 if kind == 'RISK_WORSENING' else 0
         selected = sorted([r for r in reasons if r['direction'] in (0, direction) or direction == 0],
                           key=lambda r: (-r['priority'], r['code']))

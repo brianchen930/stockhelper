@@ -68,9 +68,18 @@ class RuleEngine:
         evidence = []
 
         should_notify = False
+        finalized = context.get('final_action_state')
+        if finalized is not None:
+            context = dict(context, current_signal=finalized)
 
         for rule in self.rules:
             result = rule.evaluate(context)
+            if finalized is not None and not isinstance(rule, SignalChangeRule):
+                # Indicator evidence still explains the observation, but cannot
+                # bypass the committed three-state signal to trigger delivery.
+                result['notify_trigger'] = False
+                for event in result.get('events', []):
+                    event['notify'] = False
             result['notification_score'] = result['score']
             rule_results.append(result)
             # Neutral observations remain useful even without a notification hit.

@@ -82,7 +82,8 @@ class SignalChangeRule(BaseRule):
             })
 
         # 趨勢改變
-        if trend_states_are_valid and current_trend != previous_trend:
+        if (context.get('final_action_state') is None
+                and trend_states_are_valid and current_trend != previous_trend):
             triggered = True
             score += 2
 

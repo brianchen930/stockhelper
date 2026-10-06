@@ -100,7 +100,8 @@ def build_operation_reference(
     """Compatibility adapter; policy belongs exclusively to DecisionEngine."""
     from app.decision_context import attach_decision
     result = {'timeframe_analysis': {'short_term': short, 'medium_term': medium}}
-    attach_decision(result)
+    # This anonymous compatibility summary has no per-symbol monitoring state.
+    attach_decision(result, previous_state={})
     operation = result['timeframe_analysis']['operation_reference']
     operation['observation_conditions'] = _select_observation_conditions(short, medium)
     return operation

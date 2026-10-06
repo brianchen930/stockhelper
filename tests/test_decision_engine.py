@@ -26,18 +26,21 @@ def bullish():
         institutional_level='BULLISH', macd_momentum='bullish_strengthening',
         price_above_ma5=True, price_above_ma20=True, price_above_ma60=True, resistance_status='CONFIRMED_BREAKOUT',
         resistance_strength=7,
-        volume_state='EXPANDING', volatility_level='中等波動', atr=2, atr_percent=2)
+        volume_state='EXPANDING', volume_ratio=1.5, volatility_level='中等波動', atr=2, atr_percent=2,
+        current_price=121, active_resistance_zone=dict(low=118, high=120, zone_id='resistance'))
 
 
 def test_near_resistance_overextension():
     d = DecisionEngine().evaluate(replace(bullish(), overextended=True, distance_to_resistance=.2))
-    assert d.entry_action == A.DO_NOT_CHASE
+    assert d.entry_action == A.WATCH_FOR_CONFIRMATION
+    assert not d.risk_gate
+    assert d.entry_paths['breakout']['target_action'] == A.ALLOW_PROBE_ENTRY
 
 
 def test_breakout_two_new_observations_and_duplicate():
-    c = bullish()
+    c = replace(bullish(), current_price=120.5)
     raw = DecisionEngine().evaluate(c)
-    assert raw.entry_action == A.ENTRY_CONDITION_MET
+    assert raw.entry_action == A.WATCH_FOR_CONFIRMATION
     first, state = stabilize(raw, c, {})
     assert first.entry_action == A.WATCH_FOR_CONFIRMATION
     again, repeat = stabilize(raw, c, state)
@@ -64,7 +67,7 @@ def test_deterministic_and_debug():
 
 
 @pytest.mark.parametrize('changes', [dict(support_probability='極低'), dict(institutional_level='STRONG_PRESSURE'),
-    dict(volatility_level='極高波動'), dict(macd_momentum='bearish_strengthening'), dict(support_status='CONFIRMED_BREAK')])
+    dict(medium_term_direction=-1), dict(support_status='CONFIRMED_BREAK')])
 def test_risk_gates_block_high_score(changes):
     d = DecisionEngine().evaluate(replace(bullish(), **changes))
     assert d.risk_gate
@@ -88,9 +91,11 @@ def test_atr_break_distance_and_volume_confirmation():
 
 
 def test_risk_immediate_even_same_bar_holder_recovery_delayed():
-    c = bullish()
+    c = replace(bullish(), resistance_status='UNKNOWN')
     _, old = stabilize(DecisionEngine().evaluate(c), c, {})
-    bad = replace(c, support_status='CONFIRMED_BREAK', institutional_level='BEARISH')
+    bad = replace(c, support_status='CONFIRMED_BREAK', institutional_level='BEARISH',
+        current_price=95, active_support_zone=dict(low=100, high=102, strength_score=7),
+        support_strength=7, medium_term_direction=-1)
     d, state = stabilize(DecisionEngine().evaluate(bad), bad, old)
     assert d.holder_action == H.REDUCE_EXPOSURE
     improved, _ = stabilize(DecisionEngine().evaluate(c), c, state)
@@ -100,7 +105,7 @@ def test_risk_immediate_even_same_bar_holder_recovery_delayed():
 def test_sqlite_restart_and_repeated_monitoring(tmp_path):
     path = tmp_path / 'decision.db'
     def run(day):
-        data = dict(decision_context=asdict(replace(bullish(), symbol='test', observation_time=day)), timeframe_analysis={})
+        data = dict(decision_context=asdict(replace(bullish(), current_price=120.5, symbol='test', observation_time=day)), timeframe_analysis={})
         with sqlite3.connect(path) as connection:
             update_monitor_decision(data, connection)
         return data

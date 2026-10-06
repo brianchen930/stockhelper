@@ -30,6 +30,7 @@ def evaluate_notification(
     support_resistance_state=None,
     support_resistance_bar_closed=False,
     now=None,
+    final_action_state=None,
 ):
     context = {
         "current_signal": current_signal,
@@ -57,6 +58,9 @@ def evaluate_notification(
         "support_resistance_state": support_resistance_state,
         "support_resistance_bar_closed": support_resistance_bar_closed,
         "now": now,
+        "final_action_state": final_action_state,
     }
+    if final_action_state is not None:
+        context['current_signal'] = final_action_state
 
     return rule_engine.evaluate(context)

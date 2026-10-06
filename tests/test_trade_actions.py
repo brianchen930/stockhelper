@@ -81,7 +81,7 @@ def test_same_technical_weakness_respects_position_pnl(cost, state, action):
     assert d.decision == action
     assert d.trade_evidence['cost_context']['state'] == state
     assert 'MACD 動能轉弱' in d.reasons
-    assert '未實現報酬' in '\n'.join(format_trade_recommendation(asdict(d)))
+    assert '持倉狀態' not in '\n'.join(format_trade_recommendation(asdict(d)))
 
 
 @pytest.mark.parametrize('cost', [80, 100, 120, None, 0])
@@ -111,7 +111,7 @@ def test_profit_protection_never_overrides_invalid_data_or_exit():
     assert not any('移動停利' in r for r in d.reasons + d.follow_up)
     d = evaluate(position_status='HOLDING', average_cost=50)
     assert d.decision == 'HOLD'
-    assert any('移動停利' in r for r in d.warnings)
+    assert not any('移動停利' in r for r in d.warnings)
 
 
 @pytest.mark.parametrize('rate,state', [(10, 'LARGE_PROFIT'), (3, 'NEAR_COST'),
@@ -153,7 +153,11 @@ def test_each_analysis_dimension_affects_weighted_risk(changes, reason):
     d = evaluate(**baseline, **changes)
     assert d.trade_evidence['weighted_score'] >= evaluate(**baseline).trade_evidence['weighted_score']
     assert d.decision in ('HOLD', 'OBSERVE')
-    assert any(reason in text for text in d.trade_evidence['risk_evidence'] + d.warnings)
+    if 'volatility_level' in changes or 'atr_percent' in changes:
+        assert not d.trade_evidence['volatility_effect']['affects_action']
+        assert not any('ATR' in text for text in d.reasons + d.warnings)
+    else:
+        assert any(reason in text for text in d.trade_evidence['risk_evidence'])
 
 
 
@@ -175,12 +179,11 @@ def test_profit_and_loss_do_not_vote_on_market_actions(cost):
     assert any('仍守穩' in reason for reason in healthy.reasons)
     weak = evaluate(**c, current_price=90, support_status='CONFIRMED_BREAK',
                     macd_momentum='bullish_weakening', institutional_level='BEARISH')
-    assert weak.decision == 'CONSIDER_REDUCE'
+    assert weak.decision == 'OBSERVE'  # Structural loss without medium deterioration remains caution.
     display = '\n'.join(format_trade_recommendation(asdict(weak)))
-    for reason in ('主要支撐已確認失守', 'MACD 動能轉弱', '法人籌碼偏空'):
+    for reason in ('結構防守已確認失守', 'MACD 動能轉弱', '法人籌碼偏空'):
         assert reason in display
-    if cost == 50:
-        assert any('更積極執行' in item for item in weak.trade_evidence['position_management'])
+    assert '持倉狀態' not in display
 
 
 def test_correlated_trends_and_volatility_are_not_multiple_sell_votes():
@@ -251,12 +254,12 @@ def test_risk_improvement_confirmed_but_deterioration_immediate():
         assert monitor(conn, replace(healthy, observation_time='2026-09-17'))['decision'] == 'HOLD'
 
 
-def test_minor_risk_recovery_uses_trade_confirmation():
+def test_minor_risk_does_not_start_a_structural_reduction():
     with sqlite3.connect(':memory:') as conn:
         bad = replace(BASE, position_status='HOLDING', support_status='MINOR_BREAK', medium_term_direction=-1, institutional_level='STRONG_PRESSURE', macd_momentum='bullish_weakening')
-        assert monitor(conn, bad)['decision'] == 'REDUCE'
+        assert monitor(conn, bad)['decision'] == 'OBSERVE'
         healthy = replace(BASE, position_status='HOLDING', observation_time='2026-09-16', distance_to_support=4)
-        assert monitor(conn, healthy)['decision'] == 'REDUCE'
+        assert monitor(conn, healthy)['decision'] == 'HOLD'
         assert monitor(conn, replace(healthy, observation_time='2026-09-17'))['decision'] == 'HOLD'
 
 
@@ -285,5 +288,5 @@ def test_read_only_and_formatter():
     assert d.decision == 'OBSERVE'
     lines = format_trade_recommendation(asdict(d))
     assert lines[0] == '【交易建議】' and lines[1] == '目前動作：觀察'
-    assert '主要原因：' in lines and '持倉狀態：' in lines
+    assert '主要原因：' in lines and '持倉狀態：' not in lines
     assert '後續觀察：' in lines

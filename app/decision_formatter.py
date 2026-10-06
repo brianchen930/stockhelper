@@ -6,83 +6,19 @@ HOLDER_LABELS = dict(zip(H, ('續抱', '謹慎續抱', '提高風險警戒', '�
 
 
 def format_trade_recommendation(decision):
-    """Group existing evidence by the FINAL action, without changing scores.
-
-    A retained REDUCE may have a current HOLD candidate. Never use that
-    candidate's bullish reasons as evidence for the displayed REDUCE.
-    """
+    """Render explanations of the finalized action without changing decisions."""
+    from app.trade_explanation import explain_trade
     labels = {'WAIT': '觀察', 'ENTER': '觀察', 'ADD': '持有',
               'HOLD': '持有', 'OBSERVE': '觀察', 'CONSIDER_REDUCE': '考慮減碼',
               'REDUCE': '減碼', 'EXIT': '退出'}
-    action = decision['decision']
-    evidence = decision.get('trade_evidence') or {}
-    valid = evidence.get('checks', {}).get('valid', False)
-    ranked = sorted(evidence.get('contributions', []) if valid else [],
-                    key=lambda item: abs(item['points']), reverse=True)
-    # ATR measures variability, not direction. The score remains untouched.
-    directional = [item for item in ranked if item.get('dimension') != 'volatility'
-                   and item.get('code') != 'ATR_RISK_AMPLIFIER']
-    def signal_text(item):
-        # Legacy KD contributions only encode K vs D, not a new bullish cross.
-        return 'KD 尚未明顯轉空' if item.get('code') == 'KD' and item['points'] < 0 else item['text']
-    risks = [signal_text(item) for item in directional if item['points'] > 0]
-    protection = [signal_text(item) for item in directional if item['points'] < 0]
-    holding = decision.get('position_status') == 'HOLDING'
-    reducing = action in ('CONSIDER_REDUCE', 'REDUCE', 'EXIT')
-    holding_action = action in ('HOLD', 'ADD')
-    primary = protection if holding_action else risks
-    if not valid:
-        primary = ['本輪缺少有效決策資料，無法確認支持目前動作的新訊號']
-    elif not primary:
-        primary = ['本輪沒有足以支持減碼的新風險訊號'] if reducing else ['本輪尚無足夠方向性訊號，維持觀察']
-
-    lines = ['【交易建議】', '目前動作：' + labels[action]]
-    def section(title, items, limit=None):
-        items = list(dict.fromkeys(items))
+    lines = ['【交易建議】']
+    if decision.get('final_action_state') in ('偏多', '觀望', '偏空'):
+        lines.append('最終訊號：' + decision['final_action_state'])
+    lines.append('目前動作：' + labels[decision['decision']])
+    for title, items in zip(('主要原因', '限制因素', '後續觀察'), explain_trade(decision)):
         if items:
             lines.append(title + '：')
-            lines.extend('・' + item for item in (items[:limit] if limit else items))
-
-    # Do not pad to two reasons when only one current risk is established.
-    section('主要原因', primary, 4)
-    if holding and not holding_action:
-        section('保留部位理由', [text + '（尚不足以推翻退出判斷）' for text in protection]
-                if action == 'EXIT' else protection, 3)
-
-    cost = evidence.get('cost_context') or {}
-    if holding:
-        if valid and cost and evidence.get('average_cost') is not None:
-            rate = cost['return_percent']
-            impact = ('已有獲利緩衝，可優先保護部分獲利' if reducing else '已有獲利緩衝，依支撐與市場訊號管理部位') if rate > 0 else (
-                '不因等待回本延後處理市場風險' if rate < 0 else '依市場訊號管理部位')
-            management = [f"平均成本 {evidence['average_cost']:g}，目前未實現報酬 {rate:+.2f}%，{impact}"]
-        else:
-            management = ['持倉成本或本輪行情資料不足，暫不評估未實現報酬的影響']
-        management.append('成本不是技術支撐，不作為單獨買賣依據')
-    else:
-        management = ['目前未持倉；成本與未實現報酬不參與本輪操作判斷']
-    section('持倉狀態', management)
-
-    follow_up = list(decision.get('follow_up') or [])
-    recovery = evidence.get('recovery') or {}
-    if recovery.get('pending'):
-        progress = (f"風險改善確認：{recovery['count']}/{recovery['required']} 根新收盤日線；"
-                    f"需連續 {recovery['required']} 根確認，才考慮降低減碼警戒")
-        follow_up.insert(0, progress)
-        follow_up.insert(1, '目前動作保留先前風險警戒；本輪改善訊號尚未完成確認')
-    if reducing and action != 'EXIT':
-        follow_up.append('若支撐確認失守，且動能、法人或中期趨勢同步惡化，再提高減碼或退出程度')
-    if holding_action:
-        follow_up.extend(risks[:2])
-    section('後續觀察', follow_up)
-    reminders = [w for w in decision.get('warnings', [])
-                 if '成本' not in w and '未實現報酬' not in w]
-    if any(item.get('dimension') == 'volatility' or item.get('code') == 'ATR_RISK_AMPLIFIER'
-           for item in ranked) and not any('ATR' in text for text in reminders):
-        reminders.append('ATR 波動度偏高，應控制持倉曝險；波動本身不代表多空方向')
-    if holding:
-        reminders.append('不因虧損攤平，也不因等待回本忽略市場風險')
-    section('風險提醒', reminders)
+            lines.extend('・' + text for text in dict.fromkeys(items))
     return lines
 
 
@@ -99,13 +35,15 @@ def format_entry_paths(paths):
             detail = ('先前壓力突破失敗，突破型進場條件尚未成立' if key == 'breakout'
                       else p['missing'][0])
         elif p['status'] == S.READY:
-            detail = area + '進場條件成立，可列為進場候選'
+            detail = area + ('可小幅試單' if p.get('target_action') == A.ALLOW_PROBE_ENTRY else '進場條件成立，可列為進場候選')
         elif p['status'] == S.BLOCKED_BY_RISK:
-            detail = area + (' 壓力區已完成突破確認' if key == 'breakout' else '支撐價位條件已具備') + '，但風險限制尚未解除，暫不形成進場候選'
+            setup = (' 壓力區已完成突破確認' if p['interaction_state'] == 'RESISTANCE_BREAKOUT_CONFIRMED'
+                     else ' 突破價位條件已具備') if key == 'breakout' else '支撐價位條件已具備'
+            detail = area + setup + '，但風險限制尚未解除，暫不形成進場候選'
         elif p['status'] == S.INACTIVE and key == 'breakout' and not area:
             detail = '目前缺少有效壓力參考，暫無突破型進場候選'
         elif p['status'] in (S.INACTIVE, S.WATCHING) and key == 'pullback':
-            detail = ('若後續拉回，觀察 ' + area + ' 支撐；須守穩確認、短期動能改善且風險允許，才具備回檔型進場確認條件'
+            detail = ('若後續拉回，觀察 ' + area + ' 支撐；中期偏多、支撐守穩／站回／測試且風險允許時，依進場分數與收盤確認評估'
                       if area else '目前缺少有效支撐參考，暫無回檔型進場候選')
         else:
             state = p['interaction_state']
@@ -123,9 +61,19 @@ def format_entry_paths(paths):
                 detail = '觀察 ' + area + ' 壓力；' + '、'.join(p['missing'][:2])
             if p['status'] == S.WATCHING and '趨勢尚未符合此路徑條件' in p['missing']:
                 detail += '；趨勢尚未符合此路徑條件'
-            detail += f"；進場確認須連續 {p['confirmation_required']} 根新收盤日線符合此路徑條件"
-            if p['risk_blockers']:
-                detail += '且風險限制解除'
+        if not p.get('ready') and p['status'] not in (S.INACTIVE, S.INVALIDATED):
+            from app.trade_explanation import entry_blocking_factors
+            factors = entry_blocking_factors(p)
+            if factors:
+                detail += '；目前待確認：' + '；'.join(factors)
+        if 'entry_score' in p:
+            limits = p['score_thresholds']
+            detail += f"；進場分數 {p['entry_score']:g}（試單 {limits['probe']:g}／正常進場 {limits['entry']:g}），收盤確認 {p['confirmation_count']}/{p['confirmation_required']}"
+            modifiers = p.get('risk_modifiers', [])
+            if modifiers:
+                labels = {'EXTREME_VOLATILITY': 'ATR 極高', 'HIGH_VOLATILITY': '高波動',
+                          'OVEREXTENDED': '正乖離過大'}
+                detail += '；' + '、'.join(labels[code] for code in modifiers) + '限制為小幅試單'
         return prefix + detail
     primary = paths['primary_path']
     other = 'pullback' if primary == 'breakout' else 'breakout'
@@ -183,12 +131,13 @@ def format_operation_reference(d, *, debug=False):
                          else '短中期方向維持偏多')
         return '，並'.join(parts[:2])
     entry_condition = conditions(d.entry_upgrade_triggers)
-    support = d.price_context.get('active_support_zone')
-    current_broken = d.price_context.get('current_active_support_status') in ('CONFIRMED_BREAK', 'FLIPPED_TO_RESISTANCE')
+    structured = d.price_context.get('support_policy') == 'STRUCTURAL_V1'
+    support = d.price_context.get('structural_support_zone') if structured else d.price_context.get('active_support_zone')
+    current_broken = d.price_context.get('structural_support_status' if structured else 'current_active_support_status') in ('CONFIRMED_BREAK', 'FLIPPED_TO_RESISTANCE')
     if support:
         area = zone_text(support)
-        defense = (f'{area} 已失守，先以站回該區為修復條件' if current_broken
-                   else f'{area} 為目前防守區')
+        defense = (f'{area} 結構防守已失守，先以站回該區為修復條件' if current_broken
+                   else f'{area} 為目前結構防守區')
         worsen = (f'若無法站回 {area} 且中期結構續弱，風險進一步升高' if current_broken
                   else f'若 {area} 有效跌破且無法站回，風險進一步升高')
         interaction = support.get('interaction')
@@ -199,7 +148,7 @@ def format_operation_reference(d, *, debug=False):
             if interaction['state'] == I.SUPPORT_BREAKDOWN_PENDING:
                 worsen = f'若 {area} 後續確認失守且無法站回，風險進一步升高'
     else:
-        defense = '目前缺少可確認的支撐價位'
+        defense = '目前缺少可確認的結構防守價位' if structured else '目前缺少可確認的支撐價位'
         worsen = '若中期轉空且短期續弱，風險進一步升高'
     pending = find(d.entry_upgrade_triggers, T.CONSECUTIVE_CONFIRMATION)
     count = (pending or {}).get('required_observations', 2)
@@ -219,6 +168,8 @@ def format_operation_reference(d, *, debug=False):
         previous = d.price_context.get('previous_support_zone')
         if previous and R.PREVIOUS_SUPPORT_BREAK in d.risk_gate:
             entry = '前支撐 ' + zone_text(previous) + ' 失守風險尚未解除；' + entry
+    # Nearby entry gates do not become holder risk-recovery prerequisites.
+    gate_clause = '' if structured else gate_clause
     improve = conditions(d.holder_improve_triggers)
     if d.holder_action == H.HOLD:
         holder = f'{defense}，守穩時維持續抱狀態。{worsen}，需提高警戒。'
@@ -242,6 +193,11 @@ def format_operation_reference(d, *, debug=False):
         holder = explanation + '\n' + defense + '；' + worsen + '。若' + improve + gate_clause + '並獲新日線連續確認，則具備降低警戒的條件。'
     elif d.state_basis == 'INSUFFICIENT_EVIDENCE' and d.consistency_warnings:
         holder = '缺少有效風險觸發證據，已回退為謹慎續抱；' + holder
+    short_zone = d.price_context.get('short_term_support_zone')
+    if structured and short_zone:
+        short_broken = d.trade_evidence.get('short_term_support_broken')
+        holder += '\n' + zone_text(short_zone) + (' 短線支撐失守：短線轉弱，停止加碼／觀察是否站回。'
+            if short_broken else ' 短線支撐若失守：停止加碼、提高警戒／觀察是否站回。')
     output = dict(for_non_holder=entry, for_holder=holder, observation_conditions=[],
                   entry_label=ENTRY_LABELS[d.entry_action], holder_label=HOLDER_LABELS[d.holder_action])
     interactions = d.price_context.get('level_interactions', [])
@@ -251,12 +207,16 @@ def format_operation_reference(d, *, debug=False):
         if role == 'resistance' and d.entry_paths:
             continue
         relevant = [i for i in interactions if i['role'] == role]
-        if role == 'support' and support:
-            relevant = [i for i in relevant if i.get('zone_low') == support['low']
-                        and i.get('zone_high') == support['high']]
+        displayed_support = short_zone if structured else support
+        if role == 'support' and displayed_support:
+            relevant = [i for i in relevant if i.get('zone_low') == displayed_support['low']
+                        and i.get('zone_high') == displayed_support['high']]
         nearest = min(relevant, key=lambda i: abs(i['distance_pct'] or 0), default=None)
         if nearest and nearest['state'] not in (I.ABOVE_SUPPORT, I.BELOW_RESISTANCE):
-            output[target] = interaction_guidance({'interaction': nearest}) + '\n' + output[target]
+            guidance = interaction_guidance({'interaction': nearest})
+            if structured and role == 'support':
+                guidance = '短線支撐觀察：' + guidance.replace('結構轉弱風險', '短線轉弱風險')
+            output[target] = guidance + '\n' + output[target]
     if unsupported:
         output['holder_label'] = '證據不足'  # Rendering cannot repair an old, unvalidated decision payload.
     if R.DATA_INSUFFICIENT in d.entry_reasons:

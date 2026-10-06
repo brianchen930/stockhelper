@@ -106,3 +106,22 @@ class FlowStore:
             if row is None or taipei_time(available_at) <= taipei_time(row[0]):
                 raise ValueError('Outcome must mature after prediction')
             con.execute('UPDATE institutional_support_events SET outcome=?,outcome_available_at=? WHERE id=?', (outcome, taipei_time(available_at).isoformat(), event_id))
+
+
+class ReadOnlyFlowStore(FlowStore):
+    """Reuse point-in-time version selection without schema creation or writes."""
+
+    def __init__(self, path):
+        import sqlite3
+        from pathlib import Path
+        self.path = Path(path)
+        uri = self.path.resolve().as_uri() + '?mode=ro'
+        self.connect = lambda: sqlite3.connect(uri, uri=True)
+
+    def history(self, symbol, as_of, *, strict=True, market=None):
+        if not self.path.is_file():
+            return []
+        with closing(self.connect()) as connection:
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='institutional_flow_versions'").fetchone():
+                return []
+        return super().history(symbol, as_of, strict=strict, market=market)

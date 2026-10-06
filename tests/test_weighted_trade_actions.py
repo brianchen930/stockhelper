@@ -21,8 +21,9 @@ def assess(**changes):
 @pytest.mark.parametrize('changes,action,label', [
     (dict(medium_term_direction=1, support_status='HOLDING'), 'HOLD', '持有'),
     (dict(macd_momentum='bullish_weakening'), 'OBSERVE', '觀察'),
-    (dict(medium_term_direction=-1, macd_momentum='bullish_weakening'), 'CONSIDER_REDUCE', '考慮減碼'),
-    (dict(medium_term_direction=-1, macd_momentum='bearish_strengthening', institutional_level='BEARISH'), 'REDUCE', '減碼'),
+    (dict(medium_term_direction=-1, support_status='CONFIRMED_BREAK', current_price=90,
+          macd_momentum='bearish_weakening', institutional_level='STRONG_SUPPORT', short_term_direction=1), 'CONSIDER_REDUCE', '考慮減碼'),
+    (dict(medium_term_direction=-1, support_status='CONFIRMED_BREAK', current_price=90), 'REDUCE', '減碼'),
     (dict(medium_term_direction=-1, macd_momentum='bearish_strengthening', institutional_level='BEARISH',
           support_status='CONFIRMED_BREAK', current_price=90), 'EXIT', '退出'),
 ])
@@ -78,7 +79,7 @@ def test_correlated_momentum_does_not_supply_three_confirmations():
 
 def test_joint_break_macd_flow_and_relative_weakness_escalate():
     c = dict(support_status='CONFIRMED_BREAK', current_price=90,
-             macd_momentum='bearish_strengthening')
+             medium_term_direction=-1, macd_momentum='bullish_weakening', short_term_direction=1)
     assert assess(**c).decision == 'REDUCE'
     stronger = assess(**c, institutional_level='STRONG_PRESSURE', relative_market_strength=-5)
     assert stronger.decision == 'EXIT'
@@ -86,7 +87,8 @@ def test_joint_break_macd_flow_and_relative_weakness_escalate():
 
 
 def test_atr_amplifies_risk_without_new_direction_or_confirmation():
-    c = dict(medium_term_direction=-1, institutional_level='BEARISH')
+    c = dict(medium_term_direction=-1, support_status='CONFIRMED_BREAK', current_price=90,
+             institutional_level='BULLISH', macd_momentum='bearish_weakening', kd_state='BULLISH')
     low, high = assess(**c), assess(**c, atr_percent=9)
     assert low.decision == 'CONSIDER_REDUCE'
     assert high.decision == 'REDUCE'
@@ -94,7 +96,9 @@ def test_atr_amplifies_risk_without_new_direction_or_confirmation():
     healthy = assess(medium_term_direction=1, support_status='HOLDING', atr_percent=9)
     assert healthy.decision == 'HOLD'
     assert 'ATR_RISK_AMPLIFIER' not in healthy.trade_evidence['key_signal_codes']
-    assert any('ATR' in w for w in healthy.warnings)
+    assert not any('ATR' in w for w in healthy.warnings)
+    assert high.trade_evidence['volatility_effect']['affects_action']
+    assert not healthy.trade_evidence['volatility_effect']['affects_action']
 
 
 @pytest.mark.parametrize('cost', [50, 100, 200, None])
@@ -106,7 +110,7 @@ def test_cost_only_changes_management_not_scores_or_key_reasons(cost):
     assert baseline.reasons == d.reasons
     for key in ('weighted_score', 'contributions', 'risk_dimensions'):
         assert baseline.trade_evidence[key] == d.trade_evidence[key]
-    assert any('不因虧損而攤平' in w for w in d.warnings)
+    assert not any('不因虧損而攤平' in w for w in d.warnings)
 
 
 def test_freshness_and_adjusted_probabilities_never_duplicate_flow():
@@ -142,16 +146,18 @@ def test_compact_reasons_are_ranked_nonzero_current_contributions():
 def test_threshold_boundaries(threshold, score, below, at):
     # Three independent adverse dimensions plus a small protective oscillator.
     c = replace(NEUTRAL, medium_term_direction=-1, institutional_level='BEARISH',
-                macd_momentum='bearish_strengthening', kd_state='BULLISH')
-    # Baseline net 7.25; move the selected threshold around its exact score.
+                macd_momentum='bearish_strengthening', kd_state='BULLISH', current_price=90,
+                structural_support_zone=dict(low=98., high=100., strength_score=7.),
+                structural_support_status='CONFIRMED_BREAK')
+    # Baseline net 12.25 includes the confirmed structural break.
     values = dict(trade_observe_score=1., trade_consider_reduce_score=3., trade_reduce_score=6., trade_exit_score=9.)
-    shift = 7.25 - score
+    shift = 12.25 - score
     values = {key: value + shift for key, value in values.items()}
     # OBSERVE boundary needs lower risk to keep every threshold positive.
     if threshold == 'trade_observe_score':
-        values = dict(trade_observe_score=7.25, trade_consider_reduce_score=8., trade_reduce_score=9., trade_exit_score=10.)
+        values = dict(trade_observe_score=12.25, trade_consider_reduce_score=13., trade_reduce_score=14., trade_exit_score=15.)
     elif threshold == 'trade_exit_score':
-        values = dict(trade_observe_score=.5, trade_consider_reduce_score=2., trade_reduce_score=5., trade_exit_score=7.25)
+        values = dict(trade_observe_score=.5, trade_consider_reduce_score=2., trade_reduce_score=5., trade_exit_score=12.25)
     assert DecisionEngine(DecisionConfig(**values)).evaluate(c).decision == at
     values[threshold] += .0001
     assert DecisionEngine(DecisionConfig(**values)).evaluate(c).decision == below
@@ -163,7 +169,8 @@ def test_invalid_threshold_order_is_rejected():
 
 
 def test_consider_reduce_recovery_restart_replay_and_immediate_worsening(tmp_path):
-    c = replace(NEUTRAL, medium_term_direction=-1, macd_momentum='bullish_weakening')
+    c = replace(NEUTRAL, medium_term_direction=-1, support_status='CONFIRMED_BREAK', current_price=90,
+                macd_momentum='bearish_weakening', institutional_level='STRONG_SUPPORT', short_term_direction=1)
     path = tmp_path / 'weighted.db'
     with sqlite3.connect(path) as conn:
         assert monitor(conn, c)['decision'] == 'CONSIDER_REDUCE'

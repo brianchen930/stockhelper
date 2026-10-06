@@ -22,7 +22,7 @@ from app.support_resistance_analysis import (
 )
 
 
-def _attach_support_resistance(result, data):
+def _attach_support_resistance(result, data, *, replay=False):
     """Optional analysis failure must not discard the stock's other indicators."""
     try:
         sr = SupportResistanceEngine().detect(data)
@@ -33,7 +33,11 @@ def _attach_support_resistance(result, data):
         text = format_support_resistance_output(sr)
     result['support_resistance'] = sr
     result['support_resistance_text'] = text
-    attach_bayesian_support(result, data)
+    if replay:
+        # Current model files have no immutable point-in-time availability record.
+        sr['bayesian_support_status'] = 'unavailable_in_replay'
+    else:
+        attach_bayesian_support(result, data)
 
 
 @lru_cache(maxsize=500)
@@ -76,6 +80,7 @@ def _build_insufficient_analysis(
     data_quality: dict,
     position_status: PositionStatus = PositionStatus.WATCHING,
     average_cost=None, shares=None, entry_date=None,
+    *, replay=False, previous_state=None, now=None,
 ) -> dict:
     """行情少於兩筆有效 Close 時，回傳可安全顯示的分析結構。"""
     timeframe_analysis = analyze_timeframes(data)
@@ -125,9 +130,9 @@ def _build_insufficient_analysis(
     }
     result.update(summarize_volatility(data))
     result["technical_summary"] = build_technical_summary(result)
-    _attach_support_resistance(result, data)
+    _attach_support_resistance(result, data, replay=replay)
     from app.decision_context import attach_decision
-    attach_decision(result, data)
+    attach_decision(result, data, previous_state=previous_state, now=now)
     attach_signal_summary(result, analysis_is_valid=False)
     result.update(calculate_unrealized_pnl(result, result.get("close")))
     return result
@@ -444,9 +449,6 @@ def get_stock_analysis(
     position_status: PositionStatus | str = PositionStatus.WATCHING,
     average_cost=None, shares=None, entry_date=None,
 ):
-    position_status = PositionStatus(position_status)
-    metadata = position_metadata(validate_position_fields(dict(
-        position_status=position_status, average_cost=average_cost, shares=shares, entry_date=entry_date)))
     resolved_symbol = resolve_yahoo_symbol(stock_code)
     ticker = yf.Ticker(resolved_symbol)
 
@@ -456,9 +458,34 @@ def get_stock_analysis(
         auto_adjust=False,
     )
 
+    return analyze_stock_history(stock_code, raw_data, resolved_symbol=resolved_symbol,
+        research_mode=research_mode, position_status=position_status,
+        average_cost=average_cost, shares=shares, entry_date=entry_date)
+
+
+def analyze_stock_history(
+    stock_code, raw_data, *, resolved_symbol=None, research_mode=False,
+    position_status=PositionStatus.WATCHING, average_cost=None, shares=None, entry_date=None,
+    replay=False, benchmark_change_percent=None, previous_state=None,
+    lifecycle_store=None, institutional_service=None, now=None,
+):
+    """Shared daily pipeline; replay inputs must already be sliced at the close.
+
+    Replay requires explicit isolated dependencies and never fetches live quotes,
+    loads live decision state, or consumes a present-day trained model.
+    """
+    if replay and (now is None or previous_state is None or lifecycle_store is None
+                   or institutional_service is None):
+        raise ValueError('Replay requires a clock, previous state and isolated stores')
+    resolved_symbol = resolved_symbol or stock_code
+    position_status = PositionStatus(position_status)
+    metadata = position_metadata(validate_position_fields(dict(
+        position_status=position_status, average_cost=average_cost, shares=shares, entry_date=entry_date)))
+
     data, data_quality = normalize_history(raw_data)
     if len(data) < 2:
-        return _build_insufficient_analysis(stock_code, data, data_quality, **metadata)
+        return _build_insufficient_analysis(stock_code, data, data_quality, **metadata,
+            replay=replay, previous_state=previous_state, now=now)
 
     # 計算均線
     data = calculate_moving_averages(data)
@@ -513,7 +540,8 @@ def get_stock_analysis(
         and previous_close_price != 0
         else None
     )
-    benchmark_change_percent = get_market_change_percent()
+    if not replay:
+        benchmark_change_percent = get_market_change_percent()
     market_relative_performance = classify_market_relative_performance(
         stock_change_percent=change_percent,
         benchmark_change_percent=benchmark_change_percent,
@@ -611,7 +639,7 @@ def get_stock_analysis(
         ),
     }
 
-    realtime_data = get_realtime_price(stock_code) or {}
+    realtime_data = {} if replay else (get_realtime_price(stock_code) or {})
     analysis_result.update({
         "realtime_price": realtime_data.get("realtime_price", close_price),
         "realtime_date": realtime_data.get("date"),
@@ -620,7 +648,7 @@ def get_stock_analysis(
             "price_change_percent",
             change_percent,
         ),
-        "volume": realtime_data.get("volume", int(latest["Volume"])),
+        "volume": realtime_data.get("volume", int(latest["Volume"]) if is_finite_number(latest["Volume"]) else None),
         "price_source": realtime_data.get("price_source", "close"),
         "benchmark_change_percent": benchmark_change_percent,
         "market_relative_performance": market_relative_performance,
@@ -637,9 +665,13 @@ def get_stock_analysis(
     analysis_result.update(summarize_volatility(data))
     analysis_result["technical_summary"] = build_technical_summary(analysis_result)
     # Display-only daily-close analysis; never feeds signal or RuleEngine scores.
-    _attach_support_resistance(analysis_result, data)
+    _attach_support_resistance(analysis_result, data, replay=replay)
     from app.institutional_flow.integration import attach_institutional_flow
-    attach_institutional_flow(analysis_result, resolved_symbol)
+    if replay:
+        attach_institutional_flow(analysis_result, resolved_symbol,
+            service=institutional_service, as_of=now, replay=True)
+    else:
+        attach_institutional_flow(analysis_result, resolved_symbol)
     from app.decision_context import attach_decision
     previous_zones = {}
     if len(data) > 2:
@@ -657,11 +689,15 @@ def get_stock_analysis(
         except Exception:
             previous_zones = {}
     from app.support_resistance_analysis.lifecycle_integration import attach_zone_lifecycle
-    attach_zone_lifecycle(analysis_result, data, previous_zones)
+    if replay:
+        attach_zone_lifecycle(analysis_result, data, previous_zones, store=lifecycle_store, now=now)
+    else:
+        attach_zone_lifecycle(analysis_result, data, previous_zones)
     analysis_result['support_resistance_text'] = format_support_resistance_output(
         analysis_result['support_resistance'], research_mode=research_mode)
     analysis_result['timeframe_analysis'] = analyze_timeframes(data, analysis_result['support_resistance'])
-    attach_decision(analysis_result, data, previous_zones=previous_zones)
+    attach_decision(analysis_result, data, previous_zones=previous_zones,
+                    previous_state=previous_state, now=now)
     attach_signal_summary(analysis_result)
     display_price = analysis_result.get('realtime_price')
     if display_price is None:

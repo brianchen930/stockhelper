@@ -151,8 +151,8 @@ def test_holder_uses_current_support_and_not_old_break_as_reclaim_target():
     d = DecisionEngine().evaluate(c)
     assert d.price_context['active_support_zone']['low'] == 503.95
     targets = [t['zone'] for t in d.holder_improve_triggers if t.get('zone')]
-    assert {z['low'] for z in targets} == {503.95, 531.95}
-    assert '503.95～506.53 為目前防守區' in format_operation_reference(d)['for_holder']
+    assert {z['low'] for z in targets} == {503.95}
+    assert '503.95～506.53 為目前結構防守區' in format_operation_reference(d)['for_holder']
 
 
 def test_recent_confirmed_breakout_without_active_resistance_remains_eligible():

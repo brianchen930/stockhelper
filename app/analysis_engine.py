@@ -62,6 +62,7 @@ def generate_analysis(
     *,
     rule_evidence: list[dict] | None = None,
     timeframe_analysis: dict | None = None,
+    final_action_state: str | None = None,
 ) -> dict[str, Any]:
     """Build display layers without feeding back into strategy or notification.
 
@@ -73,7 +74,10 @@ def generate_analysis(
     items = rule_evidence if rule_evidence is not None else [
         item for item in matched_rules if isinstance(item, dict)
         and 'category' in item and 'directional_score' in item and 'reason' in item]
-    return build_signal_layers(trend, items, timeframe_analysis, analysis_is_valid)
+    result = build_signal_layers(trend, items, timeframe_analysis, analysis_is_valid)
+    if final_action_state is not None:
+        result['final_action_state'] = final_action_state
+    return result
 
 
 def attach_signal_summary(data, *, analysis_is_valid=True):
@@ -89,4 +93,5 @@ def attach_signal_summary(data, *, analysis_is_valid=True):
             items.extend(rule.evaluate(context).get('evidence', []))
     data['signal_summary'] = generate_analysis(
         strategy.get('trend'), strategy.get('signal'), 0, [], analysis_is_valid,
-        rule_evidence=items, timeframe_analysis=data.get('timeframe_analysis'))
+        rule_evidence=items, timeframe_analysis=data.get('timeframe_analysis'),
+        final_action_state=(data.get('trading_decision') or {}).get('final_action_state'))

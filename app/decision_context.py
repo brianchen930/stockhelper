@@ -29,7 +29,7 @@ def classify_support(price, previous_price, low, high, atr, volume_ratio=None, c
     return ('APPROACHING' if (price - high) / atr <= c.near_zone_atr else 'DISTANT'), distance
 
 
-def build_decision_context(result, data=None, *, previous_zones=None, config=None, now=None):
+def build_decision_context(result, data=None, *, previous_zones=None, config=None, now=None, previous_structure=None):
     c = config or DecisionConfig()
     sr = result.get('support_resistance') or {}
     tf = result.get('timeframe_analysis') or {}
@@ -90,7 +90,8 @@ def build_decision_context(result, data=None, *, previous_zones=None, config=Non
         if not zone or price is None or atr is None or atr <= 0:
             return 'UNKNOWN'
         low, high = zone['low'], zone['high']
-        if known and price > high and (price - high) / atr >= c.breakout_atr and volume_ratio is not None and volume_ratio >= c.volume_confirmation_ratio:
+        from app.entry_paths import breakout_strength
+        if known and breakout_strength(price, high, atr, volume_ratio, c):
             return 'CONFIRMED_BREAKOUT'
         if known and previous_price is not None and previous_price >= low and price < low:
             return 'REJECTED'
@@ -129,10 +130,12 @@ def build_decision_context(result, data=None, *, previous_zones=None, config=Non
     now = now or datetime.now(ZoneInfo('Asia/Taipei'))
     stamp = result.get('history_date') or result.get('date')
     complete = False
+    observation_status = 'MISSING' if not stamp else 'INVALID'
     try:
         day = datetime.fromisoformat(stamp).date()
         local = now.astimezone(ZoneInfo('Asia/Taipei'))
         complete = day < local.date() or (day == local.date() and (local.hour, local.minute) >= (13, 30))
+        observation_status = 'COMPLETE' if complete else 'FUTURE' if day > local.date() else 'INCOMPLETE'
     except (TypeError, ValueError):
         pass
     from app.support_resistance_analysis.interaction import classify_interaction
@@ -163,7 +166,22 @@ def build_decision_context(result, data=None, *, previous_zones=None, config=Non
     macd = result.get('macd_analysis') or {}
     hist, old_hist = number(result.get('macd_histogram')), number(result.get('previous_macd_histogram'))
     from app.support_resistance_analysis.selection import recent_breakout_reference
-    return DecisionContext(
+    data_issues = []
+    if price is None or price <= 0:
+        data_issues.append('日線價格缺失或無效')
+    for name, analysis in (('短期', short), ('中期', medium)):
+        if not analysis or analysis.get('label') == '資料不足' or number(analysis.get('score')) is None:
+            data_issues.append(name + '趨勢分析缺失或無效')
+    from app.holder_structure import structure_from_history, resolve_structure
+    structure = structure_from_history(data, sr, stamp, complete, c)
+    context = DecisionContext(
+        **structure, previous_close=previous_price,
+        data_issues=data_issues, observation_status=observation_status,
+        raw_signal_state=(result.get('analysis') or {}).get('raw_signal',
+            (result.get('analysis') or {}).get('signal', '無法判斷')),
+        signal_ma_values={key: number(data[source].iloc[-1])
+            if data is not None and len(data) and source in data else number(result.get(key))
+            for key, source in (('close', 'Close'), ('ma5', 'ma5'), ('ma20', 'ma20'), ('ma60', 'ma60'))},
         **position_metadata(result),
         unrealized_return=((price / result['average_cost'] - 1) * 100
             if result.get('position_status') == 'HOLDING' and number(result.get('average_cost'))
@@ -204,18 +222,18 @@ def build_decision_context(result, data=None, *, previous_zones=None, config=Non
         volume_state='UNKNOWN' if volume_ratio is None else 'EXPANDING' if volume_ratio >= c.volume_confirmation_ratio else 'NORMAL',
         volume_ratio=volume_ratio, support_status=support_status, resistance_status=resistance_status,
         break_distance_atr=break_distance, overextended=bias('ma5') >= c.overextended_ma5_pct or bias('ma20') >= c.overextended_ma20_pct,
-        data_valid=bool(short and medium and price is not None and price > 0 and short.get('label') != '資料不足' and medium.get('label') != '資料不足'))
+        data_valid=not data_issues)
+    return resolve_structure(context, previous_structure, c)
 
 
-def attach_decision(result, data=None, *, previous_zones=None, now=None):
+def attach_decision(result, data=None, *, previous_zones=None, now=None, previous_state=None):
     from dataclasses import asdict
     from app.decision_engine import DecisionEngine
-    from app.decision_state import stabilize
-    from app.decision_formatter import format_operation_reference
-    context = build_decision_context(result, data, previous_zones=previous_zones, now=now)
-    decision, _ = stabilize(DecisionEngine().evaluate(context), context, {})
+    from app.decision_state import stabilize, load_decision_state, publish_decision
+    previous = (load_decision_state(str(result.get('stock_code', '')))
+                if previous_state is None else previous_state)
+    context = build_decision_context(result, data, previous_zones=previous_zones, now=now, previous_structure=previous)
+    decision, _ = stabilize(DecisionEngine().evaluate(context), context, previous, signal_read_only=True)
     result['decision_context'] = asdict(context)
-    result['trading_decision'] = asdict(decision)
-    result['timeframe_analysis']['trading_decision'] = asdict(decision)
+    publish_decision(result, decision)
     result['timeframe_analysis']['decision_context'] = asdict(context)
-    result['timeframe_analysis']['operation_reference'] = format_operation_reference(decision)
