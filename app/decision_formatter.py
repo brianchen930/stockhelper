@@ -8,13 +8,15 @@ HOLDER_LABELS = dict(zip(H, ('續抱', '謹慎續抱', '提高風險警戒', '�
 def format_trade_recommendation(decision):
     """Render explanations of the finalized action without changing decisions."""
     from app.trade_explanation import explain_trade
-    labels = {'WAIT': '觀察', 'ENTER': '觀察', 'ADD': '持有',
+    labels = {'WAIT': '觀察', 'ENTER': '建倉', 'ADD': '持有',
               'HOLD': '持有', 'OBSERVE': '觀察', 'CONSIDER_REDUCE': '考慮減碼',
               'REDUCE': '減碼', 'EXIT': '退出'}
     lines = ['【交易建議】']
     if decision.get('final_action_state') in ('偏多', '觀望', '偏空'):
         lines.append('最終訊號：' + decision['final_action_state'])
     lines.append('目前動作：' + labels[decision['decision']])
+    if decision['decision'] == 'ENTER':
+        lines.append('進場類型：' + ('試單' if decision.get('entry_action') == 'ALLOW_PROBE_ENTRY' else '正常進場'))
     for title, items in zip(('主要原因', '限制因素', '後續觀察'), explain_trade(decision)):
         if items:
             lines.append(title + '：')

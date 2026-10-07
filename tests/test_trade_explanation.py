@@ -40,6 +40,7 @@ def test_hold_without_effective_restriction_omits_entire_block():
 def test_non_holder_with_unconfirmed_breakout_explains_observation():
     d = asdict(DecisionEngine().evaluate(BASE))
     d['entry_paths'] = dict(primary_path='breakout', breakout=entry_path(), pullback={})
+    d['entry_action'], d['decision'] = 'WATCH_FOR_CONFIRMATION', 'OBSERVE'
     s = sections(d)
     assert s['主要原因'] == ['突破型：尚未完成有效突破確認']
     assert '限制因素' not in s  # Do not repeat the same blocker twice.

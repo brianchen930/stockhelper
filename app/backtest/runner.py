@@ -228,7 +228,10 @@ def export_rows(rows, path):
         with path.open('w', encoding='utf-8-sig', newline='') as stream:
             writer = csv.DictWriter(stream, fieldnames=list(rows[0]) if rows else ['date', 'close', 'signal', 'action', 'short_trend', 'mid_trend', 'reason'])
             writer.writeheader()
-            for row in rows:
+            for index, row in enumerate(rows):
+                # Filter only CSV output; replay still processes every trading day.
+                if index > 0 and row['action_code'] == rows[index - 1]['action_code']:
+                    continue
                 writer.writerow({key: json.dumps(value, ensure_ascii=False, allow_nan=False)
                     if isinstance(value, (dict, list)) else value for key, value in row.items()})
     return path

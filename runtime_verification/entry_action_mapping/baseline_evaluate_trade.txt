@@ -1,0 +1,221 @@
+def evaluate_trade(self, d, c):
+    """Weight existing analysis states; never recalculate indicators.
+
+    Positive points mean risk, negative points mean protection. Raw market
+    scores/gates belong to the existing entry/holder analysis and are not
+    summed again. Cost cannot change these weights or the action band.
+    """
+    from app.position_status import read_position_status
+    cfg = self.config
+    from app.holder_structure import resolve_structure, structural_break, short_support, BROKEN
+    c = resolve_structure(c, None, cfg)
+    holding = read_position_status(c.position_status) == PositionStatus.HOLDING
+    d.position_status = str(read_position_status(c.position_status))
+    d.decision = 'OBSERVE'
+    d.reasons, d.warnings, d.follow_up = [], [], []
+    d.trade_confirmation_count = 0
+    from app.market_data import is_finite_number
+    from app.entry_paths import observation_day
+    checks = dict(analysis_valid=c.data_valid,
+        price_valid=is_finite_number(c.current_price) and c.current_price > 0,
+        observation_complete=c.observation_complete,
+        observation_valid=bool(observation_day(c.observation_time))
+            and c.observation_status not in ('MISSING', 'INVALID', 'FUTURE'),
+        atr_valid=is_finite_number(c.atr) and c.atr > 0,
+        volatility_valid=c.volatility_level not in (None, '', '資料不足', 'UNKNOWN'),
+        chronological=d.state_basis != 'STALE_DATA')
+    blockers = []
+    if not checks['analysis_valid']:
+        blockers.extend(c.data_issues or ['短中期分析未通過有效性檢查'])
+    if not checks['price_valid']:
+        blockers.append('日線價格缺失或無效')
+    if not checks['observation_valid']:
+        blockers.append({'MISSING': '缺少日線資料日期，無法確認收盤',
+            'INVALID': '日線資料日期格式無效，無法確認收盤',
+            'FUTURE': f'日線資料日期 {c.observation_time} 晚於本輪日期',
+        }.get(c.observation_status, '日線資料日期缺失或格式無效'))
+    if not checks['atr_valid']:
+        blockers.append('ATR 缺失或無效，無法完成風險評估')
+    if not checks['volatility_valid']:
+        blockers.append('波動度分類缺失，無法完成風險評估')
+    if not checks['chronological']:
+        blockers.append(f'本輪日線 {c.observation_time} 早於已採用的日線，未更新交易動作')
+    # An unfinished daily bar is usable market evidence. Only events that
+    # require a close (entry confirmation and risk recovery) wait for it.
+    valid = checks['valid'] = all(value for key, value in checks.items()
+                                 if key != 'observation_complete')
+    checks['blocking_reasons'] = list(dict.fromkeys(blockers))
+    checks['observation_time'] = c.observation_time
+    contributions = []
+    def add(code, dimension, points, text):
+        contributions.append(dict(code=code, dimension=dimension, points=round(points, 4), text=text))
+
+    broken = structural_break(c)
+    accelerating = ReasonCode.BEARISH_MACD_ACCELERATION in d.entry_reasons
+    sz = c.structural_support_zone
+    strength = (sz or {}).get('strength_score')
+    important = bool(c.breakout_event) or (strength is not None and strength >= cfg.min_support_strength)
+    short_zone, short_status = short_support(c)
+    short_broken = bool(short_zone and c.current_price is not None and c.current_price < short_zone['low']
+                        and short_status in (*BROKEN, 'MINOR_BREAK'))
+    sell_eligible = bool(broken and c.medium_term_direction < 0)
+    if broken:
+        weight = cfg.trade_support_weight * (1.25 if important else 1.)
+        add('SUPPORT_BREAK', 'structure', weight, '結構防守已確認失守')
+    elif c.structural_support_status == 'MINOR_BREAK':
+        add('MINOR_SUPPORT_BREAK', 'structure', cfg.trade_support_weight * .375, '結構防守初步跌破，尚未確認失守')
+    elif (sz and c.current_price is not None and c.current_price >= sz['low']
+          and c.structural_support_status in ('HOLDING', 'RECLAIMED', 'RETESTING')):
+        add('SUPPORT_INTACT', 'structure', -cfg.trade_support_weight * (.75 if important else .5),
+            f"結構防守 {sz['low']:g}～{sz['high']:g}" + ('已收復' if c.structural_support_status == 'RECLAIMED' else '仍守穩'))
+    if short_broken and (not sz or (short_zone['low'], short_zone['high']) != (sz['low'], sz['high'])):
+        add('SHORT_TERM_SUPPORT_BREAK', 'short_term', .75, '短線支撐失守，短線轉弱／觀察是否站回')
+    # Probability only adjusts an intact/unconfirmed zone, never cancels a break.
+    if not broken and c.support_status != 'MINOR_BREAK' and c.active_support_zone:
+        if c.support_probability in ('低', '極低', 'LOW', 'VERY_LOW'):
+            add('LOW_SUPPORT_PROBABILITY', 'structure', .5, '支撐成功率評等偏低')
+    if c.resistance_status == 'REJECTED':
+        add('RESISTANCE_REJECTION', 'structure', 1., '上方壓力測試受阻')
+    elif ReasonCode.RESISTANCE_BREAKOUT in d.entry_reasons:
+        add('RESISTANCE_BREAKOUT', 'structure', -1.,
+            '突破幅度／量能條件已具備' if c.observation_complete
+            else '盤中突破幅度／量能條件已具備，待收盤確認')
+    elif c.distance_to_resistance is not None and 0 <= c.distance_to_resistance <= cfg.near_zone_atr:
+        add('NEAR_RESISTANCE', 'structure', .5, '現價接近上方壓力，操作空間受限')
+    if c.medium_term_direction:
+        add('MEDIUM_TREND', 'trend', -cfg.trade_medium_weight * c.medium_term_direction,
+            '中期趨勢偏多' if c.medium_term_direction > 0 else '中期趨勢偏空')
+    if c.short_term_direction:
+        add('SHORT_TREND', 'trend', -cfg.trade_short_weight * c.short_term_direction,
+            '短期趨勢偏多' if c.short_term_direction > 0 else '短期趨勢偏空')
+    if accelerating:
+        add('MACD_ACCELERATION', 'momentum', cfg.trade_macd_weight, 'MACD 空方動能加速')
+    elif c.macd_momentum in ('bearish_strengthening', 'bullish_weakening'):
+        add('MACD_WEAKENING', 'momentum', cfg.trade_macd_weight * .5, 'MACD 動能轉弱')
+    elif c.macd_momentum in ('bearish_weakening', 'bullish_strengthening'):
+        add('MACD_IMPROVING', 'momentum', -cfg.trade_macd_weight * .3,
+            'MACD 空方動能減弱' if c.macd_momentum == 'bearish_weakening' else 'MACD 多方動能增強')
+    if c.kd_state in ('BULLISH', 'BEARISH'):
+        add('KD', 'momentum', cfg.trade_oscillator_weight * (-1 if c.kd_state == 'BULLISH' else 1),
+            'KD 尚未明顯轉空' if c.kd_state == 'BULLISH' else 'KD 偏空')
+    if c.rsi_state in ('OVERBOUGHT', 'OVERSOLD'):
+        add('RSI', 'momentum', cfg.trade_oscillator_weight,
+            'RSI 超買，短線回檔風險增加' if c.rsi_state == 'OVERBOUGHT' else 'RSI 超賣，弱勢風險仍在')
+    if c.overextended:
+        add('OVEREXTENDED', 'momentum', .5, '價格相對均線過度延伸')
+    # The category already aggregates institutions; do not add raw score or
+    # adjusted support probability again, or claim unobserved synchronous sales.
+    flow_weights = {'STRONG_PRESSURE': (1., '法人賣壓明顯'), 'BEARISH': (2/3, '法人籌碼偏空'),
+                    'BULLISH': (-.5, '法人籌碼偏多'), 'STRONG_SUPPORT': (-1., '法人買盤強勁')}
+    if c.institutional_level in flow_weights:
+        weight, label = flow_weights[c.institutional_level]
+        add('INSTITUTIONAL_FLOW', 'institutional', cfg.trade_institutional_weight * weight, label)
+    if c.relative_market_strength is not None and abs(c.relative_market_strength) >= cfg.relative_strength_threshold:
+        weak = c.relative_market_strength < 0
+        add('RELATIVE_MARKET', 'relative_market', cfg.trade_relative_weight * (1 if weak else -1),
+            f"相對大盤{'落後' if weak else '領先'} {abs(c.relative_market_strength):g} 個百分點")
+    if c.volume_deteriorating:
+        add('VOLUME_DETERIORATING', 'volume', 1., '下跌伴隨放量，量價結構轉弱')
+
+    extreme = c.volatility_level in ('極高波動', 'EXTREME') or (c.atr_percent is not None and c.atr_percent >= cfg.trade_extreme_atr_pct)
+    high_volatility = extreme or c.volatility_level in ('高波動', 'HIGH')
+    # Count NET adverse dimensions; correlated RSI/KD/MACD and short/medium
+    # trends cannot masquerade as multiple independent confirmations.
+    dimensions = {}
+    for item in contributions:
+        dimensions[item['dimension']] = dimensions.get(item['dimension'], 0.) + item['points']
+    adverse = [key for key, points in dimensions.items() if points > 0]
+    raw_score = sum(item['points'] for item in contributions)
+    if high_volatility:
+        bonus = max(0., raw_score) * cfg.trade_volatility_multiplier * (2 if extreme else 1)
+        if bonus:
+            add('ATR_RISK_AMPLIFIER', 'volatility', bonus, 'ATR 波動度極高，放大既有風險' if extreme else 'ATR 波動度偏高，放大既有風險')
+    score = round(sum(item['points'] for item in contributions), 4)
+    def action_for(value):
+        if sell_eligible and value >= cfg.trade_exit_score and len(adverse) >= 3:
+            return 'EXIT'
+        if sell_eligible and value >= cfg.trade_reduce_score and len(adverse) >= 2:
+            return 'REDUCE'
+        if sell_eligible and value >= cfg.trade_consider_reduce_score and len(adverse) >= 2:
+            return 'CONSIDER_REDUCE'
+        if short_broken or value >= cfg.trade_observe_score or not any(item['points'] < 0 for item in contributions):
+            return 'OBSERVE'
+        return 'HOLD'
+    market_action = action_for(score)
+    # Missing analysis is not bullish evidence. It prevents an unqualified
+    # HOLD, but does not suppress established multi-signal market risk.
+    missing = []
+    if not sz and not broken:
+        missing.append('缺少有效結構防守參考')
+    if c.institutional_level == 'UNKNOWN':
+        missing.append('缺少有效法人資料')
+    if c.macd_momentum in ('unknown', 'data_insufficient'):
+        missing.append('MACD 資料不足')
+    constraints = missing if market_action == 'HOLD' else []
+    if constraints:
+        market_action = 'OBSERVE'
+    without_atr = action_for(round(raw_score, 4))
+    if missing and without_atr == 'HOLD':
+        without_atr = 'OBSERVE'
+    atr_affects_action = valid and holding and without_atr != market_action
+    if valid:
+        d.decision = market_action if holding else 'OBSERVE'
+    cost_context = self._holding_cost_context(c) if holding else None
+    d.trade_evidence = dict(version=4, checks=checks, contributions=contributions,
+        support_policy='STRUCTURAL_V1', structural_support_zone=sz,
+        structural_support_status=c.structural_support_status, breakout_event=c.breakout_event,
+        short_term_support_zone=short_zone, short_term_support_broken=short_broken,
+        reduction_eligible=sell_eligible,
+        action_constraints=constraints,
+        volatility_effect=dict(affects_action=atr_affects_action,
+            action_without_volatility=without_atr, action_with_volatility=market_action),
+        dimension_scores={key: round(value, 4) for key, value in dimensions.items()},
+        weighted_score=score, raw_weighted_score=round(raw_score, 4), risk_dimensions=adverse,
+        market_action=market_action if valid else 'OBSERVE',
+        reduce_signal=market_action in ('CONSIDER_REDUCE', 'REDUCE', 'EXIT') and valid,
+        risk_evidence=[x['text'] for x in contributions if x['points'] > 0],
+        positive_evidence=[x['text'] for x in contributions if x['points'] < 0],
+        average_cost=c.average_cost if holding else None, cost_context=cost_context,
+        unrealized_return=cost_context['return_percent'] if cost_context else None,
+        thresholds=dict(observe=cfg.trade_observe_score, consider_reduce=cfg.trade_consider_reduce_score,
+                        reduce=cfg.trade_reduce_score, exit=cfg.trade_exit_score))
+    # Show at most four influential observations, with a meaningful opposing
+    # signal when present. All contributions remain available for auditing.
+    ranked = sorted((x for x in contributions if x['dimension'] != 'volatility' or atr_affects_action),
+                    key=lambda x: abs(x['points']), reverse=True)
+    primary = [x for x in ranked if (x['points'] > 0) == (market_action != 'HOLD')]
+    opposing = [x for x in ranked if x not in primary]
+    selected = primary[:3] + opposing[:1] if primary else opposing[:4]
+    if atr_affects_action:
+        amplifier = next(x for x in ranked if x['code'] == 'ATR_RISK_AMPLIFIER')
+        if amplifier not in selected:
+            selected = selected[:3] + [amplifier]
+    selected = sorted(selected, key=lambda x: abs(x['points']), reverse=True)
+    if not valid:
+        d.reasons = list(checks['blocking_reasons'])
+        selected = []
+    else:
+        d.reasons = [x['text'] for x in selected]
+        if constraints:
+            selected = selected[:3]
+            d.reasons = constraints + d.reasons[:3]
+        if not d.reasons:
+            d.reasons = ['本輪沒有足夠方向性證據，維持觀察']
+    d.trade_evidence['key_signal_codes'] = [x['code'] for x in selected]
+    d.follow_up = ([f"觀察支撐 {sz['low']:g}～{sz['high']:g} 的守穩／失守與中期趨勢是否同步變化"]
+                   if sz else ['觀察中期趨勢變化，待有效支撐價位形成後重新評估'])
+    if not valid:
+        d.follow_up = []
+        if not checks['chronological']:
+            d.follow_up.append('取得不早於已採用日期的日線後重新評估')
+        if not checks['observation_valid']:
+            d.follow_up.append('取得日期有效的日線後重新評估')
+        if not checks['analysis_valid'] or not checks['price_valid']:
+            d.follow_up.extend('補齊並驗證' + reason.replace('缺失或無效', '').replace('未通過有效性檢查', '')
+                for reason in dict.fromkeys((c.data_issues or (['短中期分析'] if not c.data_valid else []))
+                    + ([] if checks['price_valid'] else ['日線價格'])))
+        if not checks['atr_valid'] or not checks['volatility_valid']:
+            d.follow_up.append('取得有效 ATR 與波動度分類後重新評估風險')
+    elif constraints:
+        d.follow_up.extend(reason + '，補齊後重新評估' for reason in constraints)
+    return d

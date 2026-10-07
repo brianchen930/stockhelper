@@ -684,7 +684,15 @@ class DecisionEngine:
             without_atr = 'OBSERVE'
         atr_affects_action = valid and holding and without_atr != market_action
         if valid:
-            d.decision = market_action if holding else 'OBSERVE'
+            if holding:
+                d.decision = market_action
+            else:
+                # EntryEngine owns eligibility and close confirmation. The
+                # weighted holder assessment must not veto a confirmed entry.
+                # ENTRY_CONDITION_MET is this engine's normal ALLOW_ENTRY state.
+                d.decision = ('ENTER' if d.entry_action in (
+                    ActionState.ENTRY_CONDITION_MET, ActionState.ALLOW_PROBE_ENTRY,
+                    'ALLOW_ENTRY') else 'OBSERVE')
         cost_context = self._holding_cost_context(c) if holding else None
         d.trade_evidence = dict(version=4, checks=checks, contributions=contributions,
             support_policy='STRUCTURAL_V1', structural_support_zone=sz,
@@ -743,6 +751,14 @@ class DecisionEngine:
                 d.follow_up.append('取得有效 ATR 與波動度分類後重新評估風險')
         elif constraints:
             d.follow_up.extend(reason + '，補齊後重新評估' for reason in constraints)
+        if d.decision == 'ENTER':
+            path = d.entry_paths.get(d.entry_paths.get('primary_path'), {})
+            kind = '試單進場' if d.entry_action == ActionState.ALLOW_PROBE_ENTRY else '正常進場'
+            d.reasons = [kind + '條件已完成確認'] + list(path.get('reasons', []))
+            # Keep weighted evidence (including missing institutional data) for
+            # audit; it describes holder risk, not the WATCHING entry authority.
+            d.trade_evidence['decision_basis'] = 'ENTRY_ACTION'
+            d.trade_evidence['entry_action'] = str(d.entry_action)
         return d
 
     def _holding_cost_context(self, c):

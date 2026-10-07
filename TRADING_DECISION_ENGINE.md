@@ -1,5 +1,15 @@
 # Trading Decision Engine
 
+2026-10-06 最終動作分流：WATCHING 使用已確認的 EntryEngine 結果。
+`ALLOW_PROBE_ENTRY` 與 `ENTRY_CONDITION_MET`（正常進場，即 ALLOW_ENTRY）映射為 `ENTER`；
+`WATCH_FOR_CONFIRMATION / WAIT / DO_NOT_CHASE / AVOID` 映射為 `OBSERVE`。
+保留 `entry_action` 區分試單與正常進場，formatter 顯示「建倉」及進場類型。
+此映射不增加另一組確認計數，不修改進場門檻、風險限制或法人判斷。
+HOLDING 沿用 weighted risk 的 `HOLD / OBSERVE / CONSIDER_REDUCE / REDUCE / EXIT` 與恢復防抖。
+`trade_evidence.market_action` 仍是加權風險觀察值，不能覆蓋 WATCHING 的已確認進場；
+ENTER 的 `decision_basis=ENTRY_ACTION` 說明其來源。即時與回測共用此 DecisionEngine。
+本段為目前最終動作規則，下方較早版本的 ENTER／ADD 條件僅保留作歷史紀錄。
+
 2026-10-02 持有者修正：最近支撐只用於短線警戒；結構防守確認失守且中期轉弱後，
 才開放減碼分級。帶量平台突破事件、防守來源與保存規則見 [HOLDER_STRUCTURE.md](HOLDER_STRUCTURE.md)。
 下方歷史「最近支撐跌破」及不需結構失守的減碼分級，以此新規則為準。

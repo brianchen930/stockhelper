@@ -141,7 +141,9 @@ def explain_trade(decision):
     primary = [factor_text(x) for x in primary_factors]
     primary_codes = {x['code'] for x in primary_factors[:4]}
     # The retained action is supported by incomplete recovery, not a HOLD candidate.
-    if reducing and recovery.get('pending'):
+    if action == 'ENTER':
+        primary = list(decision.get('reasons') or [])
+    elif reducing and recovery.get('pending'):
         primary.insert(0, '先前減碼警戒仍保留，本輪改善尚未完成連續收盤確認')
     elif constraints:
         primary = constraints + primary
@@ -163,6 +165,8 @@ def explain_trade(decision):
     primary = primary[:4]
 
     limits = []
+    if action == 'ENTER':
+        limits.extend(constraints)
     if checks.get('observation_complete') is False:
         limits.append('盤中評估；進場確認與風險解除仍以已收盤日線為準')
     if not reducing:

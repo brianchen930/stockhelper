@@ -25,7 +25,7 @@ def evaluate(**changes):
 
 
 @pytest.mark.parametrize('changes,expected', [
-    ({}, 'OBSERVE'),
+    ({}, 'ENTER'),
     (dict(rsi_state='OVERSOLD', medium_term_direction=-1, support_status='CONFIRMED_BREAK',
           current_price=90, macd_momentum='bearish_strengthening'), 'OBSERVE'),
     (dict(position_status='HOLDING', distance_to_support=4), 'HOLD'),
@@ -44,22 +44,24 @@ def test_requested_eight_cases(changes, expected):
     assert d.reasons and isinstance(d.warnings, list)
 
 
-@pytest.mark.parametrize('changes', [
-    dict(rsi_state='OVERSOLD', macd_momentum='neutral'),
-    dict(support_probability='中'), dict(active_resistance_zone=None),
-    dict(active_resistance_zone={'low': 102, 'high': 104}),
-    dict(volume_ratio=None), dict(volume_deteriorating=True), dict(overextended=True),
-    dict(atr=None), dict(observation_complete=False), dict(data_valid=False),
-    dict(price_above_ma60=None), dict(medium_term_direction=-1),
-    dict(institutional_level='STRONG_PRESSURE'), dict(support_status='MINOR_BREAK'),
+@pytest.mark.parametrize('changes,expected', [
+    (dict(rsi_state='OVERSOLD', macd_momentum='neutral'), 'ENTER'),
+    (dict(support_probability='中'), 'ENTER'), (dict(active_resistance_zone=None), 'ENTER'),
+    (dict(active_resistance_zone={'low': 102, 'high': 104}), 'ENTER'),
+    (dict(volume_ratio=None), 'ENTER'), (dict(volume_deteriorating=True), 'ENTER'),
+    (dict(overextended=True), 'OBSERVE'), (dict(atr=None), 'OBSERVE'),
+    (dict(observation_complete=False), 'OBSERVE'), (dict(data_valid=False), 'OBSERVE'),
+    (dict(price_above_ma60=None), 'ENTER'), (dict(medium_term_direction=-1), 'OBSERVE'),
+    (dict(institutional_level='STRONG_PRESSURE'), 'OBSERVE'),
+    (dict(support_status='MINOR_BREAK'), 'OBSERVE'),
 ])
-def test_five_actions_never_invent_entry_or_sell_from_one_change(changes):
-    assert evaluate(**changes).decision == 'OBSERVE'
+def test_watching_entry_policy_and_holding_risk_remain_independent(changes, expected):
+    assert evaluate(**changes).decision == expected
     assert evaluate(position_status='HOLDING', **changes).decision in ('HOLD', 'OBSERVE')
 
 
-def test_watching_observes_and_kd_alone_does_not_sell():
-    assert evaluate(kd_state='BEARISH').decision == 'OBSERVE'
+def test_kd_does_not_override_ready_entry_and_extreme_requires_confirmation():
+    assert evaluate(kd_state='BEARISH').decision == 'ENTER'
     assert evaluate(position_status='HOLDING', kd_state='BEARISH').decision == 'HOLD'
     assert evaluate(volatility_level='EXTREME').decision == 'OBSERVE'
     assert evaluate(volatility_level='EXTREME', support_probability='極高',
@@ -164,8 +166,9 @@ def test_each_analysis_dimension_affects_weighted_risk(changes, reason):
 @pytest.mark.parametrize('changes', [dict(institutional_level='BEARISH'),
     dict(institutional_level='UNKNOWN'), dict(relative_market_strength=-3),
     dict(short_term_direction=-1)])
-def test_market_conflicts_block_new_exposure(changes):
-    assert evaluate(**changes).decision == 'OBSERVE'
+def test_holder_market_constraints_do_not_override_confirmed_entry(changes):
+    d = evaluate(**changes)
+    assert d.entry_paths['entry_ready'] and d.decision == 'ENTER'
     assert evaluate(position_status='HOLDING', **changes).decision == ('OBSERVE' if changes.get('institutional_level') == 'UNKNOWN' else 'HOLD')
 
 
@@ -220,21 +223,21 @@ def test_confirmation_replay_restart_role_change_and_history(tmp_path):
     path = tmp_path / 'trade.db'
     with sqlite3.connect(path) as conn:
         d = monitor(conn)
-        assert d['decision'] == 'OBSERVE' and d['trade_confirmation_count'] == 0
+        assert d['decision'] == 'ENTER' and d['trade_confirmation_count'] == 0
         assert monitor(conn)['trade_confirmation_count'] == 0
         assert conn.execute('SELECT count(*) FROM trading_decision_history').fetchone()[0] == 1
     with sqlite3.connect(path) as conn:
         day2 = replace(BASE, observation_time='2026-09-16')
         d = monitor(conn, day2)
-        assert d['decision'] == 'OBSERVE' and d['trade_confirmation_count'] == 0
-        assert monitor(conn, day2)['decision'] == 'OBSERVE'
+        assert d['decision'] == 'ENTER' and d['trade_confirmation_count'] == 0
+        assert monitor(conn, day2)['decision'] == 'ENTER'
         holding = replace(day2, position_status='HOLDING', average_cost=110, unrealized_return=-9.09)
         assert monitor(conn, holding)['decision'] == 'HOLD'
         assert monitor(conn, replace(holding, observation_time='2026-09-17'))['decision'] == 'HOLD'
         assert monitor(conn, replace(holding, observation_time='2026-09-18'))['decision'] == 'HOLD'
         rows = conn.execute('SELECT date,symbol,position_status,decision,decision_reasons,context_json,decision_json FROM trading_decision_history ORDER BY id').fetchall()
         assert len(rows) == 5
-        assert [row[3] for row in rows] == ['OBSERVE', 'OBSERVE', 'HOLD', 'HOLD', 'HOLD']
+        assert [row[3] for row in rows] == ['ENTER', 'ENTER', 'HOLD', 'HOLD', 'HOLD']
         assert json.loads(rows[-1][5])['average_cost'] == 110
         assert json.loads(rows[-1][6])['config']['confirmation_required'] == 2
         before = conn.execute('SELECT * FROM decision_state').fetchone()
@@ -270,7 +273,7 @@ def test_no_persist_incomplete_and_new_zone_restarts_confirmation():
         monitor(conn, BASE)
         changed = replace(BASE, observation_time='2026-09-16', active_support_zone={'low': 98, 'high': 100, 'stable_zone_id': 'NEW'})
         d = monitor(conn, changed)
-        assert d['decision'] == 'OBSERVE' and d['trade_confirmation_count'] == 0
+        assert d['decision'] == 'ENTER' and d['trade_confirmation_count'] == 0
 
 
 def test_atomic_history_state_rollback():
@@ -285,8 +288,9 @@ def test_atomic_history_state_rollback():
 
 def test_read_only_and_formatter():
     d, state = stabilize(evaluate(), BASE, {})
-    assert d.decision == 'OBSERVE'
+    assert d.decision == 'ENTER'
     lines = format_trade_recommendation(asdict(d))
-    assert lines[0] == '【交易建議】' and lines[1] == '目前動作：觀察'
+    assert lines[0] == '【交易建議】' and lines[1] == '目前動作：建倉'
+    assert '進場類型：正常進場' in lines
     assert '主要原因：' in lines and '持倉狀態：' not in lines
     assert '後續觀察：' in lines

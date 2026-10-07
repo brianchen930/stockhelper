@@ -14,7 +14,7 @@ Windows 既有虛擬環境也可直接使用 `.venv/Scripts/python.exe backtest.
 
 - 每個股票交易日收盤 13:30（Asia/Taipei）回放一次，開始、結束日期均包含。休市或停牌無日線資料時不補值、不增加確認次數。
 - 固定 `WATCHING`（預設，觀察中）或 `HOLDING`（假設已持有）情境；決策不視為成交，不自動變更持倉。要檢查減碼／出清請使用 `--position-status HOLDING`。
-- 現行正式 DecisionEngine 的 WATCHING 動作是 OBSERVE；進場資格由獨立的 `entry_action` 與 `decision_snapshot.entry_paths` 記錄。目前核心不產生 ENTER／ADD，回測也不另造建倉／加碼訊號。保留正式的 `CONSIDER_REDUCE`（考慮減碼），不將它冒充為已減碼。EXIT 在 CSV 顯示「出清」。
+- WATCHING 由已確認的 `entry_action` 決定動作：`ALLOW_PROBE_ENTRY`（試單）或 `ENTRY_CONDITION_MET`（正常進場，對應 ALLOW_ENTRY）映射為 `ENTER`（建倉）；其他進場狀態映射為 `OBSERVE`。保留 `entry_action` 與 `decision_snapshot.entry_paths` 區分進場類型。HOLDING 沿用 weighted risk 動作，包含 `CONSIDER_REDUCE`（考慮減碼）；EXIT 在 CSV 顯示「出清」。ENTER 是決策建議，不代表已成交或自動切换為 HOLDING。
 - 不處理資金、持倉比例、成交、加減碼幅度或績效。
 - 每次執行從空決策狀態開始。首日之前的六個月資料只用來暖機指標；不預先累計 confirmation。每日分析視窗同正式 `get_stock_analysis` 預設六個月，起始日會影響之後的狀態序列。
 - 每日一次的確認次數是「收盤觀察次數」，不是重現正式盤中多次輪詢的通知紀錄。
@@ -42,6 +42,8 @@ BacktestRunner（歷史切片） ────┘       ├─ DecisionEngine / d
 - Yahoo 回傳的是目前保存的歷史價格，可能含事後修訂或拆股調整；v1 保證計算與狀態不讀未來日期，但不宣稱供應商資料是當時原始版本。若需要原始版本稽核，可從 API 注入自存日線。
 
 ## 輸出
+
+CSV 保留首個回放交易日，之後僅在當日 `action_code` 與上一個回放交易日不同時輸出，所有欄位維持不變。回測仍逐日執行所有判斷與狀態更新；程式回傳結果及 JSON 輸出仍保留每個交易日。
 
 主要欄位：`date, close, signal, action, short_trend, mid_trend, reason`。
 另包含 RSI、MACD／KD 狀態、支撐／壓力與結構支撐狀態、相對大盤、法人 context、RuleEngine 命中訊息、DecisionEngine 規則代碼、進場／持有狀態、確認次數與防抖資訊。

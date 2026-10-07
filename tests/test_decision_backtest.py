@@ -160,10 +160,48 @@ def test_exports_preserve_unicode_and_structured_state(history, tmp_path):
     json_path = export_rows(rows, tmp_path / 'out.json')
     assert json.loads(json_path.read_text(encoding='utf-8')) == rows
     with csv_path.open(encoding='utf-8-sig', newline='') as stream:
-        loaded = list(csv.DictReader(stream))
+        reader = csv.DictReader(stream)
+        assert reader.fieldnames == list(rows[0])
+        loaded = list(reader)
+    expected = [rows[0]] + [row for previous, row in zip(rows, rows[1:])
+                            if row['action_code'] != previous['action_code']]
     assert loaded[0]['action'] == rows[0]['action']
-    assert json.loads(loaded[-1]['state_after']) == rows[-1]['state_after']
-    assert len(loaded) == 4
+    assert len(rows) == 4
+    assert len(loaded) == len(expected)
+    for actual, row in zip(loaded, expected):
+        for key, value in row.items():
+            if isinstance(value, (dict, list)):
+                assert json.loads(actual[key]) == value
+            else:
+                assert actual[key] == ('' if value is None else str(value))
+
+
+@pytest.mark.parametrize(('codes', 'kept_indices'), [
+    ([], []),
+    (['OBSERVE'], [0]),
+    (['OBSERVE', 'OBSERVE', 'OBSERVE'], [0]),
+    (['OBSERVE', 'OBSERVE', 'ENTER', 'ENTER', 'OBSERVE', 'OBSERVE'], [0, 2, 4]),
+    (['ENTER', 'HOLD', 'REDUCE', 'EXIT'], [0, 1, 2, 3]),
+    (['WAIT', 'OBSERVE'], [0, 1]),
+])
+def test_csv_exports_first_day_and_action_code_changes(tmp_path, codes, kept_indices):
+    rows = [dict(date=f'2025-01-{index + 6:02d}', action_code=code,
+                 action=runner.ACTION_LABELS[code], close=100 + index,
+                 reason=f'每日原因 {index}', action_changed=False)
+            for index, code in enumerate(codes)]
+    original = copy.deepcopy(rows)
+    path = export_rows(rows, tmp_path / 'changes.csv')
+    with path.open(encoding='utf-8-sig', newline='') as stream:
+        reader = csv.DictReader(stream)
+        loaded = list(reader)
+        assert reader.fieldnames == (list(rows[0]) if rows else
+            ['date', 'close', 'signal', 'action', 'short_trend', 'mid_trend', 'reason'])
+    assert [row['date'] for row in loaded] == [rows[index]['date'] for index in kept_indices]
+    assert [row['action_code'] for row in loaded] == [codes[index] for index in kept_indices]
+    assert path.read_bytes().startswith(b'\xef\xbb\xbf')
+    assert rows == original
+    json_path = export_rows(rows, tmp_path / 'daily.json')
+    assert json.loads(json_path.read_text(encoding='utf-8')) == original
 
 
 def test_download_is_bounded_and_includes_end_date(monkeypatch):
