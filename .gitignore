@@ -17,3 +17,17 @@ runtime_verification/*.db
 runtime_verification/*.pem
 backup_results/
 backtest_results/
+# Pytest temp dirs and local caches
+.pytest_tmp/
+.cache/
+666_strategy/.cache/
+data/backtests/.yfinance_cache/
+
+# Local SQLite databases (watchlist holds personal positions)
+data/*.db
+
+# 666_strategy verification data: keep scripts and reports only
+666_strategy/verification/**
+!666_strategy/verification/**/
+!666_strategy/verification/**/*.py
+!666_strategy/verification/**/*.md
