@@ -1,0 +1,23 @@
+{
+  "schema": "taiwan_cash_sessions_v1",
+  "year": 2025,
+  "verified_at": "2026-10-30",
+  "scheduled_closures_source": "https://www.tpex.org.tw/storage/eb_data/11407/114030173911-1.pdf",
+  "scheduled_closures_cross_checks": [
+    "https://www.taifex.com.tw/file/taifex/CHINESE/11/attach/%E5%8F%B0%E6%9C%9F%E4%BA%A4%E5%AD%97%E7%AC%AC1140001929%E8%99%9F%E5%87%BD.pdf",
+    "https://www.twse.com.tw/staticFiles/news/news/tsecnews/8a8216d6942a222b019463ddc9ae0113.pdf"
+  ],
+  "scheduled_closed_dates": [
+    "2025-01-01", "2025-01-23", "2025-01-24", "2025-01-27", "2025-01-28", "2025-01-29", "2025-01-30", "2025-01-31",
+    "2025-02-28", "2025-04-03", "2025-04-04", "2025-05-01", "2025-05-30", "2025-05-31",
+    "2025-09-28", "2025-09-29", "2025-10-06", "2025-10-10", "2025-10-24", "2025-10-25", "2025-12-25"
+  ],
+  "exceptional_closures": [],
+  "verification_notes": [
+    "Use stock-market sessions in the TPEx revised 2025 calendar; 1/22 is the last stock trading day before Lunar New Year, not a closed day.",
+    "2/8 is an administrative make-up workday but not a securities trading day.",
+    "The revised official schedules include 9/29, 10/24 and 12/25. Natural closures are not inferred from absent price rows.",
+    "TWSE holidaySchedule API returned queryYear=2026 and a 2026 title even when 2025/114 was requested; that response is preserved as rejected evidence, not used as the 2025 schedule."
+  ],
+  "limitation": "Official revised scheduled closures. Daily market-reference validation is still required to detect unmatched dates; no missing quote is automatically interpreted as a holiday."
+}

@@ -1,0 +1,41 @@
+{
+  "schema": "taiwan_cash_sessions_v1",
+  "year": 2026,
+  "verified_at": "2026-10-29",
+  "scheduled_closures_source": "https://www.twse.com.tw/holidaySchedule/holidaySchedule?queryYear=115&response=html",
+  "scheduled_closed_dates": [
+    "2026-01-01",
+    "2026-02-12", "2026-02-13", "2026-02-15", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20",
+    "2026-02-27", "2026-02-28",
+    "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06",
+    "2026-05-01", "2026-06-19", "2026-09-25", "2026-09-28", "2026-10-09", "2026-10-10",
+    "2026-10-25", "2026-10-26", "2026-12-25"
+  ],
+  "exceptional_closures": [
+    {
+      "date": "2026-07-10",
+      "reason": "颱風臨時休市；使用者已確認原日曆誤列開市",
+      "sources": [],
+      "confirmation": {
+        "type": "user_confirmed",
+        "confirmed_at": "2026-10-29",
+        "details": "使用者明確確認 2026/07/10 因颱風休市；非由行情缺漏推斷。"
+      }
+    },
+    {
+      "date": "2026-10-23",
+      "announced_date": "2026-10-22",
+      "reason": "颱風臨時休市",
+      "confirmation": {
+        "type": "user_confirmed",
+        "confirmed_at": "2026-10-29",
+        "details": "使用者再次確認休市，且 Yahoo 日線回傳零成交量價格列。"
+      },
+      "sources": [
+        "https://www.twfhcsec.com.tw/News/NewsContent?ID=1502&List=%E6%9C%80%E6%96%B0%E6%B6%88%E6%81%AF",
+        "https://www.taifex.com.tw/cht/11/announcement"
+      ]
+    }
+  ],
+  "limitation": "Annual scheduled closures plus explicitly verified exceptional closures, not an automatically updated emergency closure feed. Unknown emergency closures fail reference validation and must not be inferred from null prices."
+}

@@ -1,0 +1,29 @@
+{
+  "schema": "taiwan_cash_sessions_v1",
+  "year": 2024,
+  "verified_at": "2026-11-01",
+  "scheduled_closures_source": "https://www.tpex.org.tw/storage/en-us/web/bulletin/trading_date/trading_date_113.htm",
+  "scheduled_closures_cross_checks": [
+    "https://www.tpex.org.tw/storage/eb_data/11211/11200746051.html",
+    "https://eshop.twse.com.tw/zh/news/detail/000000008c1e9f81018cc87af7540078"
+  ],
+  "scheduled_closed_dates": [
+    "2024-01-01",
+    "2024-02-06", "2024-02-07", "2024-02-08", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-02-13", "2024-02-14",
+    "2024-02-28", "2024-04-04", "2024-04-05", "2024-05-01", "2024-06-10", "2024-09-17", "2024-10-10"
+  ],
+  "exceptional_closures": [
+    {"date": "2024-07-24", "reason": "TWSE full-day closure, Typhoon Gaemi", "sources": ["https://www.twse.com.tw/staticFiles/news/news/tsecnews/8a8216d6906d4d340190df83a6ac0170.pdf"]},
+    {"date": "2024-07-25", "reason": "TWSE full-day closure, Typhoon Gaemi", "sources": ["https://www.twse.com.tw/staticFiles/news/news/tsecnews/8a8216d6906d4d340190e4a4ef640174.pdf"]},
+    {"date": "2024-10-02", "reason": "TWSE full-day closure, Typhoon Krathon", "sources": ["https://www.twse.com.tw/staticFiles/news/news/tsecnews/8a8216d69236c2e301924806d5b4004e.pdf"]},
+    {"date": "2024-10-03", "reason": "TWSE full-day closure, Typhoon Krathon", "sources": ["https://investoredu.twse.com.tw/Mobile_pages/..%2FFileSystem%2FFileUpload%2F2c6e50d4-a390-439c-a2c4-823937dee4b2.pdf"]},
+    {"date": "2024-10-31", "reason": "TWSE full-day closure, Typhoon Kong-rey", "sources": ["https://www.twse.com.tw/staticFiles/news/news/tsecnews/8a8216d69236c2e30192dd5179bc0327.pdf"]}
+  ],
+  "verification_notes": [
+    "2024-02-05 is the last stock trading day before Lunar New Year; 02-06 and 02-07 are settlement-only days, not trading sessions.",
+    "2024-02-17 is an administrative make-up Saturday, not a securities trading day.",
+    "Emergency closure dates come from explicit TWSE announcements, never from absent quotes.",
+    "The requested 2024-10-30 to 2025-10-29 run uses unchanged 2025 schedule data; each required stock daily and five-bar intraday grid must still pass the existing validators."
+  ],
+  "limitation": "A verified session schedule is not a quote availability guarantee. Missing prices on expected sessions fail the full-window validation; no session is removed to make a backtest pass."
+}
