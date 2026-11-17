@@ -397,7 +397,7 @@ def get_stock_indicators(
         high=data["High"],
         low=data["Low"],
         close=data["Close"],
-        period=9,
+        period=60,  # KD 60/3/3（使用者指定）
     )
 
     data["KD_K"] = kd_data["KD_K"]
@@ -507,7 +507,7 @@ def analyze_stock_history(
     high=data["High"],
     low=data["Low"],
     close=data["Close"],
-    period=9,
+    period=60,  # KD 60/3/3（使用者指定）
 )
 
     data["KD_K"] = kd_data["KD_K"]
